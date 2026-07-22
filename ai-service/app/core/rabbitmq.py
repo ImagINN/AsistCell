@@ -6,8 +6,8 @@ import aio_pika
 from typing import Optional
 
 from app.database import AsyncSessionLocal
-from app.services.analysis_service import analyze_and_assign
-from app.schemas.analysis import AnalysisCreate
+from app.services.analysis_service import analysis_service
+from app.schemas.analysis import AnalysisRequest
 
 logger = logging.getLogger(__name__)
 
@@ -76,14 +76,14 @@ class RabbitMQClient:
 
                 logger.info(f"Received ticket.created for ticket {ticket_id}")
 
-                analysis_req = AnalysisCreate(
-                    ticketId=ticket_id,
+                analysis_req = AnalysisRequest(
+                    ticket_id=ticket_id,
                     title=title,
                     description=description
                 )
 
                 async with AsyncSessionLocal() as session:
-                    result = await analyze_and_assign(session, analysis_req)
+                    result = await analysis_service.process_ticket(session, analysis_req)
                     
                     # Sonucu Ticket Service'e geri gönder
                     response_payload = {

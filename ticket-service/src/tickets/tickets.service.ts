@@ -6,7 +6,7 @@ import { Ticket, Message } from './schemas/ticket.schema';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { UpdateTicketStatusDto } from './dto/update-ticket-status.dto';
 import { AddMessageDto } from './dto/add-message.dto';
-import { TicketStatus, MessageRole } from '../../common/enums';
+import { TicketStatus, MessageRole, TicketPriority } from '../common/enums';
 import { StateMachineException } from '../common/exceptions/state-machine.exception';
 import { TicketsGateway } from './tickets.gateway';
 
@@ -148,7 +148,7 @@ export class TicketsService {
       case TicketPriority.ORTA: hours = 24; break;
       case TicketPriority.DUSUK: hours = 72; break;
     }
-    const deadline = new Date(ticket.createdAt);
+    const deadline = new Date((ticket as any).createdAt || Date.now());
     deadline.setHours(deadline.getHours() + hours);
     ticket.slaDeadline = deadline;
 

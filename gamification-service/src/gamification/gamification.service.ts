@@ -80,7 +80,7 @@ export class GamificationService {
   }
 
   async checkAndAwardBadges(agentId: string, profile: any) {
-    const existingBadges = profile.badges.map(b => b.badgeType);
+    const existingBadges = profile.badges.map((b: any) => b.badgeType);
 
     const awardBadge = async (badge: BadgeType) => {
       if (!existingBadges.includes(badge)) {

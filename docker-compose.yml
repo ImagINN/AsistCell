@@ -227,7 +227,7 @@ services:
       PORT: 3004
       NODE_ENV: production
       DATABASE_URL: postgresql://${GAMIFICATION_POSTGRES_USER}:${GAMIFICATION_POSTGRES_PASSWORD}@gamification-postgres:5432/${GAMIFICATION_POSTGRES_DB}?schema=public
-      REDIS_HOST: redis
+      REDIS_HOST: gamification-redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       RABBITMQ_URI: amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672
@@ -235,7 +235,7 @@ services:
     depends_on:
       gamification-postgres:
         condition: service_healthy
-      redis:
+      gamification-redis:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
@@ -280,6 +280,22 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+
+  # ──────────────────────────────────────────────────────────────
+  # ADMIN PANEL — React Web App
+  # Port: 3000
+  # ──────────────────────────────────────────────────────────────
+  admin-panel:
+    build:
+      context: ./admin-panel
+      dockerfile: Dockerfile
+    container_name: asistcell-admin-panel
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      kong:
+        condition: service_healthy
 
 # ──────────────────────────────────────────────────────────────
 # NAMED VOLUMES

@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-brand-background text-brand-text font-sans antialiased;
+  }
+}
+
+@layer components {
+  /* Cam (Glassmorphism) Efekti */
+  .glass-panel {
+    @apply bg-white/80 backdrop-blur-lg border border-white/20 shadow-lg rounded-2xl;
+  }
+  
+  /* Birincil Buton (Mavi) */
+  .btn-primary {
+    @apply bg-brand-primary text-white px-4 py-2 rounded-lg font-medium shadow-md 
+           hover:bg-blue-800 hover:shadow-lg transition-all duration-300 active:scale-95;
+  }
+  
+  /* İkincil Buton (Sarı) */
+  .btn-secondary {
+    @apply bg-brand-secondary text-brand-primary px-4 py-2 rounded-lg font-medium shadow-md 
+           hover:bg-yellow-400 hover:shadow-lg transition-all duration-300 active:scale-95;
+  }
+}
