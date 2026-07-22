@@ -1,14 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { io, Socket } from 'socket.io-client';
 import { AlertCircle, CheckCircle2, Clock, Gauge, Sparkles, Users, UserCheck } from 'lucide-react';
-import api from '../services/api';
+import api, { API_ORIGIN } from '../services/api';
 import Navbar from '../components/Navbar';
 import DonutChart from '../components/charts/DonutChart';
 import BarChart from '../components/charts/BarChart';
+import AutoAssignmentFeed from '../components/AutoAssignmentFeed';
 import {
   CATEGORY_LABELS, CATEGORY_COLORS, PRIORITY_LABELS,
   STATUS_LABELS, SENTIMENT_LABELS, SENTIMENT_COLORS,
 } from '../constants/tickets';
+import { fetchUsersByIds, fetchUsersByRole, fullName, type DirectoryUser } from '../services/directory';
 
 interface DashboardStats {
   totals: { total: number; open: number; byStatus: Record<string, number>; byPriority: Record<string, number> };
@@ -59,18 +62,57 @@ const SupervisorDashboard: React.FC = () => {
   const [pending, setPending] = useState<PendingTicket[]>([]);
   const [assignDrafts, setAssignDrafts] = useState<Record<string, string>>({});
   const [assignError, setAssignError] = useState<Record<string, string>>({});
+  const [names, setNames] = useState<Map<string, DirectoryUser>>(new Map());
+  const [agents, setAgents] = useState<DirectoryUser[]>([]);
 
   const loadAll = () => {
     api.get('/tickets/stats/dashboard').then((r) => setStats(r.data)).catch(() => {});
-    api.get('/tickets/stats/team').then((r) => setTeam(r.data)).catch(() => {});
+    api.get('/tickets/stats/team').then((r) => {
+      setTeam(r.data);
+      fetchUsersByIds(r.data.map((t: TeamRow) => t.agentId)).then(setNames);
+    }).catch(() => {});
     api.get('/ai/stats').then((r) => setAiStats(r.data)).catch(() => {});
     api.get('/tickets', { params: { category: 'BELIRSIZ' } }).then((r) => setPending(r.data)).catch(() => {});
   };
 
   useEffect(() => {
     loadAll();
+    fetchUsersByRole('TEMSILCI').then(setAgents).catch(() => {});
+    // Ağır agregasyonlar (istatistik/takım) için periyodik tazeleme — canlı
+    // event'ler (auto_assignment, ticket_completed) ayrıca anlık tetikler.
     const id = setInterval(loadAll, 20000);
-    return () => clearInterval(id);
+
+    const token = localStorage.getItem('access_token') || '';
+    const socket: Socket = io(API_ORIGIN, {
+      path: '/api/v1/tickets/socket.io',
+      transports: ['websocket'],
+      query: { jwt: token },
+      auth: { token },
+    });
+
+    // Bekleyen (BELIRSIZ) atama kuyruğu her ticket güncellemesinde anlık senkron olur
+    socket.on('ticket_updated', (ticket: PendingTicket & { status: string }) => {
+      setPending((prev) => {
+        const stillPending = ticket.category === 'BELIRSIZ' && !['KAPANDI', 'IPTAL'].includes(ticket.status);
+        const exists = prev.some((p) => p.ticketNumber === ticket.ticketNumber);
+        if (stillPending) {
+          return exists
+            ? prev.map((p) => (p.ticketNumber === ticket.ticketNumber ? ticket : p))
+            : [ticket, ...prev];
+        }
+        return exists ? prev.filter((p) => p.ticketNumber !== ticket.ticketNumber) : prev;
+      });
+    });
+
+    // Otomatik atama veya tamamlanma gerçekleştiğinde üst istatistikleri/takım
+    // performansını beklemeden anlık tazele
+    socket.on('auto_assignment', loadAll);
+    socket.on('ticket_completed', loadAll);
+
+    return () => {
+      clearInterval(id);
+      socket.disconnect();
+    };
   }, []);
 
   const assignPending = async (ticketNumber: string) => {
@@ -145,7 +187,7 @@ const SupervisorDashboard: React.FC = () => {
           />
         </div>
 
-        {/* Grafikler */}
+        {/* Grafikler + Canlı Otomatik Atama Akışı */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-slide-up">
           <div className="glass-panel p-6">
             <h3 className="text-sm font-bold text-gray-900 mb-4">Durum Dağılımı</h3>
@@ -155,7 +197,11 @@ const SupervisorDashboard: React.FC = () => {
             <h3 className="text-sm font-bold text-gray-900 mb-4">Kategori Dağılımı</h3>
             <DonutChart data={categoryData} />
           </div>
-          <div className="glass-panel p-6">
+          <AutoAssignmentFeed />
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-slide-up">
+          <div className="glass-panel p-6 lg:col-span-1">
             <h3 className="text-sm font-bold text-gray-900 mb-4">Sentiment Dağılımı</h3>
             <DonutChart data={sentimentData} />
           </div>
@@ -171,7 +217,7 @@ const SupervisorDashboard: React.FC = () => {
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="text-left text-gray-500 border-b">
-                  <th className="py-2 pr-4">Temsilci ID</th>
+                  <th className="py-2 pr-4">Temsilci</th>
                   <th className="py-2 pr-4">Çözülen Talep</th>
                   <th className="py-2 pr-4">Ort. Müşteri Puanı</th>
                   <th className="py-2">SLA Uyumu</th>
@@ -183,7 +229,10 @@ const SupervisorDashboard: React.FC = () => {
                 ) : (
                   team.map((t) => (
                     <tr key={t.agentId} className="border-b last:border-0">
-                      <td className="py-2 pr-4 font-mono text-xs text-gray-700">{t.agentId}</td>
+                      <td className="py-2 pr-4">
+                        <span className="font-medium text-gray-900">{fullName(names.get(t.agentId)) ?? t.agentId}</span>
+                        <span className="ml-2 text-xs text-gray-400">Temsilci</span>
+                      </td>
                       <td className="py-2 pr-4 font-semibold text-gray-900">{t.resolvedCount}</td>
                       <td className="py-2 pr-4">{t.avgRating ? t.avgRating.toFixed(1) : '—'}</td>
                       <td className="py-2">{pct(t.slaComplianceRate)}</td>
@@ -219,14 +268,23 @@ const SupervisorDashboard: React.FC = () => {
                     )}
                   </div>
                   <div className="flex gap-2 shrink-0">
-                    <input
-                      type="text"
-                      placeholder="Temsilci ID"
+                    <select
                       value={assignDrafts[t.ticketNumber] ?? ''}
                       onChange={(e) => setAssignDrafts((prev) => ({ ...prev, [t.ticketNumber]: e.target.value }))}
                       className="text-sm px-3 py-1.5 border border-gray-300 rounded-lg shadow-sm focus:border-brand-primary focus:ring focus:ring-brand-primary focus:ring-opacity-50"
-                    />
-                    <button onClick={() => assignPending(t.ticketNumber)} className="btn-primary text-sm px-3 py-1.5 flex items-center gap-1">
+                    >
+                      <option value="">Temsilci seçin...</option>
+                      {agents.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {fullName(a)}{a.specialties?.length ? ` — ${a.specialties.map((s) => CATEGORY_LABELS[s] ?? s).join(', ')}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => assignPending(t.ticketNumber)}
+                      disabled={!assignDrafts[t.ticketNumber]}
+                      className="btn-primary text-sm px-3 py-1.5 flex items-center gap-1 disabled:opacity-50"
+                    >
                       <UserCheck className="w-4 h-4" /> Ata
                     </button>
                   </div>

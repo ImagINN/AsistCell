@@ -21,9 +21,11 @@ ataması yapılmaz, süpervizör manuel atar).
   Format: `text,category`. Örnekler günlük konuşma dilinde, gerçek çağrı merkezi
   senaryolarından esinlenerek yazıldı (örn. *"Faturam bu ay iki katı geldi,
   açıklama istiyorum"*, *"Evde çekim gücü çok düşük, sürekli kesiliyor"*).
-- **Mimari:** `TfidfVectorizer` (kelime + 2-gram, sublinear TF) →
-  `LogisticRegression` (C=10). Güven skoru `predict_proba`'nın en yüksek sınıf
-  olasılığıdır — 0.0-1.0 aralığında, LLM'inkiyle aynı sözleşme.
+- **Mimari:** `TfidfVectorizer` (karakter 3-5 gram, `char_wb`, sublinear TF) →
+  `LogisticRegression` (C=5). Karakter n-gram'ları Türkçe'nin sondan eklemeli
+  yapısında kelime n-gram'larından belirgin iyi sonuç verdi (5-fold CV: 0.913'e
+  karşı 0.727). Güven skoru `predict_proba`'nın en yüksek sınıf olasılığıdır —
+  0.0-1.0 aralığında, LLM'inkiyle aynı sözleşme.
 - **Eğitim süreci:** `python scripts/train_model.py`
   1. CSV yüklenir, 5-katlı çapraz doğrulama ile genel doğruluk raporlanır,
   2. %80/%20 stratified split üzerinde test doğruluğu + sınıf bazlı
