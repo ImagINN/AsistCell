@@ -1,9 +1,21 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { LogOut, Ticket, Trophy, User } from 'lucide-react';
+import TicketsList from '../components/TicketsList';
+import Leaderboard from '../components/Leaderboard';
+import api from '../services/api';
 
 const Dashboard: React.FC = () => {
   const { user, logout } = useAuth();
+  const [profile, setProfile] = useState<any>(null);
+
+  useEffect(() => {
+    if (user?.id) {
+      api.get(`/game/agents/${user.id}`)
+        .then(res => setProfile(res.data))
+        .catch(err => console.error("Profil alınamadı:", err));
+    }
+  }, [user]);
 
   return (
     <div className="min-h-screen bg-brand-surface">
@@ -38,8 +50,8 @@ const Dashboard: React.FC = () => {
               <Ticket className="w-8 h-8" />
             </div>
             <div>
-              <p className="text-sm font-medium text-gray-500">Açık Talepler</p>
-              <h3 className="text-2xl font-bold text-gray-900">0</h3>
+              <p className="text-sm font-medium text-gray-500">Çözülen Talepler</p>
+              <h3 className="text-2xl font-bold text-gray-900">{profile?.totalResolvedTickets || 0}</h3>
             </div>
           </div>
 
@@ -50,7 +62,7 @@ const Dashboard: React.FC = () => {
             </div>
             <div>
               <p className="text-sm font-medium text-gray-500">Puanınız</p>
-              <h3 className="text-2xl font-bold text-gray-900">0</h3>
+              <h3 className="text-2xl font-bold text-gray-900">{profile?.totalPoints || 0}</h3>
             </div>
           </div>
 
@@ -61,18 +73,18 @@ const Dashboard: React.FC = () => {
             </div>
             <div>
               <p className="text-sm font-medium text-gray-500">Seviye</p>
-              <h3 className="text-2xl font-bold text-gray-900">Bronz</h3>
+              <h3 className="text-2xl font-bold text-gray-900 uppercase">{profile?.currentLevel || 'BRONZ'}</h3>
             </div>
           </div>
 
         </div>
 
-        <div className="mt-8 animate-slide-up">
-          <div className="glass-panel p-6">
-            <h2 className="text-lg font-medium text-gray-900 mb-4">Aktif Talepler (Gerçek Zamanlı)</h2>
-            <div className="border-t border-gray-200 py-4">
-              <p className="text-gray-500 text-center py-8">Henüz talep yok veya yükleniyor...</p>
-            </div>
+        <div className="mt-8 animate-slide-up grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2">
+            <TicketsList />
+          </div>
+          <div>
+            <Leaderboard />
           </div>
         </div>
       </main>

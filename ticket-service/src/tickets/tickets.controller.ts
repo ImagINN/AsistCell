@@ -4,7 +4,7 @@ import { TicketsService } from './tickets.service';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { UpdateTicketStatusDto } from './dto/update-ticket-status.dto';
 import { AddMessageDto } from './dto/add-message.dto';
-import { MessageRole } from '../../common/enums';
+import { MessageRole } from '../common/enums';
 
 @Controller('api/v1/tickets')
 export class TicketsController {
