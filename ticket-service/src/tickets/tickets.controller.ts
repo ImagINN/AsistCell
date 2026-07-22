@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Body, Param, Patch, Headers } from '@nestjs/common';
+import { EventPattern, Payload } from '@nestjs/microservices';
 import { TicketsService } from './tickets.service';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { UpdateTicketStatusDto } from './dto/update-ticket-status.dto';
@@ -50,4 +51,15 @@ export class TicketsController {
     const roleEnum = (userRole as MessageRole) || MessageRole.MUSTERI;
     return this.ticketsService.addMessage(ticketNumber, dto, userId || 'user-123', roleEnum);
   }
+
+  // --- RabbitMQ Event Listeners ---
+  @EventPattern('ticket.analyzed')
+  async handleTicketAnalyzed(@Payload() data: any) {
+    // data payload: { ticketId, category, sentiment, priority, assignedAgentId }
+    if (!data.ticketId) return;
+    
+    // updateAiAnalysis metodunu çağırıp veritabanını ve WS'i güncelle
+    await this.ticketsService.updateAiAnalysis(data.ticketId, data);
+  }
 }
+
