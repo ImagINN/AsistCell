@@ -76,6 +76,31 @@ export class TicketsController {
     return this.ticketsService.getTeamPerformance();
   }
 
+  // Tamamlanan talepler log ekranı (KAPANDI/IPTAL) — Süpervizör/Admin
+  @Get('completed')
+  getCompleted(
+    @CurrentUser() user: JwtUser,
+    @Query('take') take?: string,
+    @Query('skip') skip?: string,
+  ) {
+    if (user.role !== UserRole.SUPERVIZOR && user.role !== UserRole.ADMIN) {
+      this.auditClient.deny(user, 'COMPLETED_TICKETS_VIEW', 'Tamamlanan talepler log ekranı yalnızca süpervizör ve admin tarafından görüntülenebilir');
+    }
+    return this.ticketsService.getCompletedTickets(
+      take ? parseInt(take, 10) : undefined,
+      skip ? parseInt(skip, 10) : undefined,
+    );
+  }
+
+  // Otomatik atama akışı (AI'ın uzmanlık eşleştirmesiyle yaptığı atamalar) — Süpervizör/Admin
+  @Get('auto-assignments')
+  getAutoAssignments(@CurrentUser() user: JwtUser, @Query('take') take?: string) {
+    if (user.role !== UserRole.SUPERVIZOR && user.role !== UserRole.ADMIN) {
+      this.auditClient.deny(user, 'AUTO_ASSIGNMENTS_VIEW', 'Otomatik atama akışı yalnızca süpervizör ve admin tarafından görüntülenebilir');
+    }
+    return this.ticketsService.getAutoAssignments(take ? parseInt(take, 10) : undefined);
+  }
+
   // Müşteri kendi taleplerini listeler; SUPERVIZOR/ADMIN herhangi bir müşterininkini görebilir
   @Get('customer/:customerId')
   findByCustomer(@CurrentUser() user: JwtUser, @Param('customerId') customerId: string) {
