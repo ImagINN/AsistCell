@@ -18,6 +18,29 @@ async def analyze_ticket(request: AnalysisRequest, db: AsyncSession = Depends(ge
     """
     return await analysis_service.process_ticket(db, request)
 
+@router.get("/analysis/{ticket_id}")
+async def get_analysis(ticket_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Belirli bir talebin en güncel AI analiz sonucunu döner (kategori, güven skoru,
+    sentiment, öncelik). Temsilci/süpervizör ekranlarında sentiment gösterimi için kullanılır.
+    """
+    result = await db.execute(
+        select(AnalysisLog).where(AnalysisLog.ticket_id == ticket_id).order_by(AnalysisLog.created_at.desc())
+    )
+    log = result.scalars().first()
+    if not log:
+        raise HTTPException(status_code=404, detail="Bu talep için AI analizi bulunamadı")
+    return {
+        "ticket_id": log.ticket_id,
+        "category": log.category,
+        "confidence": log.confidence,
+        "sentiment": log.sentiment,
+        "priority": log.priority,
+        "fallback_used": log.fallback_used,
+        "manual_queue": log.manual_queue,
+        "corrected_category": log.corrected_category,
+    }
+
 @router.get("/health")
 async def health_check():
     """
@@ -51,10 +74,23 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
         )
     )
 
+    category_rows = (
+        await db.execute(
+            select(AnalysisLog.category, func.count(AnalysisLog.id)).group_by(AnalysisLog.category)
+        )
+    ).all()
+    sentiment_rows = (
+        await db.execute(
+            select(AnalysisLog.sentiment, func.count(AnalysisLog.id)).group_by(AnalysisLog.sentiment)
+        )
+    ).all()
+
     return {
         "total_analyzed": total,
         "fallback_used": fallback_count,
         "manual_queue": manual_count,
         "category_corrections": corrected,
-        "accuracy_rate": (predicted - corrected) / predicted if predicted else None
+        "accuracy_rate": (predicted - corrected) / predicted if predicted else None,
+        "by_category": {row[0]: row[1] for row in category_rows},
+        "by_sentiment": {row[0]: row[1] for row in sentiment_rows},
     }

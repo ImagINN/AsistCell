@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from app.schemas.analysis import AnalysisRequest, AnalysisResult
 from app.services.gemini_service import gemini_service
 from app.services.assignment_service import assignment_service
+from app.ml.local_classifier import local_classifier, rule_based_sentiment
 from app.models.analysis_log import AnalysisLog
 
 logger = logging.getLogger(__name__)
@@ -57,17 +58,40 @@ class AnalysisService:
                 result.priority = "ORTA" # Default öncelik
                 
         except Exception as e:
-            # Fallback (Diskalifiye Koruması)
+            # Hibrit fallback: Gemini erişilemezse kendi veri setimizle eğitilmiş
+            # yerel model (TF-IDF + Logistic Regression) sınıflandırır; sentiment
+            # kural tabanlı belirlenir. Yerel model de yoksa BELIRSIZ + manuel kuyruk.
             logger.error(f"Fallback triggered for ticket {request.ticket_id} due to: {str(e)}")
             result.fallback_used = True
-            result.fallback_reason = str(e)
-            result.category = "BELIRSIZ"
-            result.manual_queue = True
-            result.priority = "ORTA"
+
+            if local_classifier.available:
+                text = f"{request.title} {request.description}"
+                cat, conf = local_classifier.classify(text)
+                result.confidence = conf
+                # Ana akışla aynı kural: güven < 0.60 ise BELIRSIZ + manuel kuyruk
+                if conf < 0.60:
+                    result.category = "BELIRSIZ"
+                    result.manual_queue = True
+                else:
+                    result.category = cat
+                    result.manual_queue = False
+                result.sentiment = rule_based_sentiment(text)
+                result.priority = "YUKSEK" if result.sentiment == "OFKELI" else "ORTA"
+                result.fallback_reason = f"gemini: {str(e)} | local_model kullanıldı (conf={conf:.2f})"
+                logger.info(
+                    f"Local model classified ticket {request.ticket_id}: "
+                    f"{result.category} (conf={conf:.2f}, sentiment={result.sentiment})"
+                )
+            else:
+                result.fallback_reason = str(e)
+                result.category = "BELIRSIZ"
+                result.manual_queue = True
+                result.priority = "ORTA"
 
         # 3. Akıllı Temsilci Ataması
-        # Sadece kategorisi belli olanlar için atama yapıyoruz
-        if not result.manual_queue and not result.fallback_used:
+        # Kategorisi güvenle belirlenmiş talepler atanır (yerel model dahil);
+        # güven < 0.60 olanlar manuel atama kuyruğunda kalır.
+        if not result.manual_queue:
             agent = await assignment_service.get_best_agent(db, result.category)
             if agent:
                 result.assigned_agent_id = agent.id
