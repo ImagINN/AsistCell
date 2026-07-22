@@ -1,35 +1,40 @@
 import {
   IsEmail,
+  IsOptional,
   IsString,
-  MinLength,
-  MaxLength,
+  Length,
   Matches,
+  MaxLength,
+  MinLength,
 } from 'class-validator';
+import { IsStrongPassword } from '../../common/validators/password.decorator';
+import { GSM_REGEX } from '../../common/validators/gsm.util';
 
+// Müşteri kaydı: Turkcell GSM + OTP doğrulama. E-posta opsiyoneldir.
 export class RegisterDto {
-  @IsEmail({}, { message: 'Please provide a valid email address' })
-  email: string;
-
-  /**
-   * Şifre kuralları:
-   * - Min 8, max 32 karakter
-   * - En az 1 büyük harf, 1 küçük harf, 1 rakam
-   */
-  @IsString()
-  @MinLength(8, { message: 'Password must be at least 8 characters long' })
-  @MaxLength(32, { message: 'Password must not exceed 32 characters' })
-  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/, {
-    message: 'Password must contain at least one uppercase letter, one lowercase letter, and one number',
-  })
-  password: string;
-
-  @IsString()
-  @MinLength(2, { message: 'First name must be at least 2 characters long' })
-  @MaxLength(50)
+  @IsString({ message: 'Ad metin olmalıdır' })
+  @MinLength(2, { message: 'Ad en az 2 karakter olmalıdır' })
+  @MaxLength(50, { message: 'Ad en fazla 50 karakter olabilir' })
   firstName: string;
 
-  @IsString()
-  @MinLength(2, { message: 'Last name must be at least 2 characters long' })
-  @MaxLength(50)
+  @IsString({ message: 'Soyad metin olmalıdır' })
+  @MinLength(2, { message: 'Soyad en az 2 karakter olmalıdır' })
+  @MaxLength(50, { message: 'Soyad en fazla 50 karakter olabilir' })
   lastName: string;
+
+  @Matches(GSM_REGEX, {
+    message: 'Geçerli bir GSM numarası giriniz (örn. 05XX XXX XX XX)',
+  })
+  gsmNumber: string;
+
+  @IsOptional()
+  @IsEmail({}, { message: 'Geçerli bir e-posta adresi giriniz' })
+  email?: string;
+
+  @IsStrongPassword()
+  password: string;
+
+  @IsString({ message: 'Doğrulama kodu metin olmalıdır' })
+  @Length(4, 4, { message: 'Doğrulama kodu 4 haneli olmalıdır' })
+  otpCode: string;
 }

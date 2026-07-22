@@ -15,8 +15,14 @@ async def create_agent(agent_in: AgentCreate, db: AsyncSession = Depends(get_db)
     result = await db.execute(select(Agent).where(Agent.email == agent_in.email))
     if result.scalars().first():
         raise HTTPException(status_code=400, detail="Email already registered")
-        
-    agent = Agent(**agent_in.model_dump())
+
+    # Identity user id ile eslestirilmis kayit varsa cakismayi engelle
+    if agent_in.id:
+        result = await db.execute(select(Agent).where(Agent.id == agent_in.id))
+        if result.scalars().first():
+            raise HTTPException(status_code=400, detail="Agent id already registered")
+
+    agent = Agent(**agent_in.model_dump(exclude_none=True))
     db.add(agent)
     await db.commit()
     await db.refresh(agent)

@@ -36,17 +36,24 @@ export class GamificationService {
     return { ...profile, rank };
   }
 
-  async addPoints(agentId: string, points: number, reason: string, ticketId?: string) {
+  async addPoints(
+    agentId: string,
+    points: number,
+    reason: string,
+    ticketId?: string,
+    countResolved = false,
+  ) {
     // 1. Profili bul veya oluştur
-    let profile = await this.prisma.agentProfile.findUnique({ where: { id: agentId } });
-    if (!profile) {
-      profile = await this.prisma.agentProfile.create({ data: { id: agentId } });
-    }
+    await this.prisma.agentProfile.upsert({
+      where: { id: agentId },
+      create: { id: agentId },
+      update: {},
+    });
 
-    const newPoints = profile.totalPoints + points;
-    const newLevel = this.calculateLevel(newPoints);
-    
-    // 2. İşlemleri Transaction içinde yap
+    // 2. İşlemleri Transaction içinde yap.
+    // totalPoints atomik increment ile güncellenir — eşzamanlı eventlerde
+    // (örn. ticket.resolved + ticket.rated art arda) read-modify-write
+    // kayıp güncellemeye yol açıyordu.
     const updatedProfile = await this.prisma.$transaction(async (tx) => {
       // Puan geçmişini ekle
       await tx.pointHistory.create({
@@ -58,25 +65,49 @@ export class GamificationService {
         },
       });
 
-      // Profili güncelle
-      return await tx.agentProfile.update({
+      const incremented = await tx.agentProfile.update({
         where: { id: agentId },
         data: {
-          totalPoints: newPoints,
-          currentLevel: newLevel,
-          totalResolvedTickets: ticketId ? { increment: 1 } : undefined, // Eğer ticket id verildiyse çözülmüştür
+          totalPoints: { increment: points },
+          totalResolvedTickets: countResolved ? { increment: 1 } : undefined,
         },
-        include: { badges: true }
+      });
+
+      // Seviye, artırılmış güncel puana göre hesaplanır
+      return await tx.agentProfile.update({
+        where: { id: agentId },
+        data: { currentLevel: this.calculateLevel(incremented.totalPoints) },
+        include: { badges: true },
       });
     });
 
     // 3. Redis Leaderboard'u güncelle
-    await this.redisService.updateLeaderboard(agentId, newPoints, points);
+    await this.redisService.updateLeaderboard(agentId, updatedProfile.totalPoints, points);
 
     // 4. Otomatik Rozet Kontrolü (Kurallar)
     await this.checkAndAwardBadges(agentId, updatedProfile);
 
     return updatedProfile;
+  }
+
+  // Müşteri puanlaması geldiğinde ortalama memnuniyeti günceller
+  async recordRating(agentId: string, rating: number) {
+    await this.prisma.agentProfile.upsert({
+      where: { id: agentId },
+      create: { id: agentId },
+      update: {},
+    });
+
+    await this.prisma.$transaction(async (tx) => {
+      const profile = await tx.agentProfile.findUniqueOrThrow({ where: { id: agentId } });
+      const newCount = profile.ratedCount + 1;
+      const newAvg = (profile.averageRating * profile.ratedCount + rating) / newCount;
+
+      await tx.agentProfile.update({
+        where: { id: agentId },
+        data: { averageRating: newAvg, ratedCount: newCount },
+      });
+    });
   }
 
   async checkAndAwardBadges(agentId: string, profile: any) {

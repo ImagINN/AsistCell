@@ -4,10 +4,12 @@ import api from '../services/api';
 
 interface User {
   id: string;
-  email: string;
+  email: string | null;
+  gsmNumber?: string | null;
   firstName: string;
   lastName: string;
   role: string;
+  specialties?: string[];
 }
 
 interface AuthContextType {

@@ -54,6 +54,24 @@ export class GamificationController {
       reason += " (Yüksek Müşteri Memnuniyeti)";
     }
 
+    await this.gamificationService.addPoints(data.agentId, points, reason, data.ticketId, true);
+  }
+
+  // Müşteri çözümü puanladığında (rating: 1-5)
+  @EventPattern('ticket.rated')
+  async handleTicketRated(@Payload() data: any) {
+    // data: { ticketId, agentId, rating }
+    if (!data.agentId || !data.ticketId || !data.rating) return;
+
+    let points = 0;
+    let reason = `Müşteri değerlendirmesi: ${data.rating}/5`;
+
+    if (data.rating === 5) points = 15;
+    else if (data.rating === 4) points = 8;
+    else if (data.rating === 3) points = 2;
+    else points = -5; // 1-2: düşük memnuniyet
+
+    await this.gamificationService.recordRating(data.agentId, data.rating);
     await this.gamificationService.addPoints(data.agentId, points, reason, data.ticketId);
   }
 }

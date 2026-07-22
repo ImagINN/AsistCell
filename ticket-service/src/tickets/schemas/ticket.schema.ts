@@ -1,6 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, SchemaTypes } from 'mongoose';
-import { TicketStatus, TicketPriority, MessageRole } from '../../common/enums';
+import { TicketStatus, TicketPriority, MessageRole, TicketChannel } from '../../common/enums';
 
 @Schema({ timestamps: true })
 export class Message {
@@ -38,6 +38,9 @@ export class Ticket extends Document {
   @Prop({ type: String, default: 'BELIRSIZ' })
   category: string;
 
+  @Prop({ type: String, enum: TicketChannel, required: true })
+  channel: TicketChannel;
+
   @Prop({ type: String, required: true, index: true })
   customerId: string;
 
@@ -52,6 +55,36 @@ export class Ticket extends Document {
 
   @Prop({ type: String })
   resolutionNote?: string;
+
+  @Prop({ type: Date })
+  resolvedAt?: Date;
+
+  // Müşteri memnuniyet puanı (1-5), yalnızca COZULDU sonrası bir kez verilebilir
+  @Prop({ type: Number, min: 1, max: 5 })
+  rating?: number;
+
+  @Prop({ type: String, maxlength: 500 })
+  ratingComment?: string;
+
+  @Prop({ type: Date })
+  ratedAt?: Date;
+
+  // AI doğruluk takibi: analiz yapıldı mı, atama kaynağı ne, AI ataması manuel değiştirildi mi
+  @Prop({ type: Boolean, default: false })
+  aiProcessed: boolean;
+
+  @Prop({ type: String, enum: ['AI', 'MANUAL'] })
+  assignmentSource?: string;
+
+  @Prop({ type: Boolean, default: false })
+  reassignedAfterAi: boolean;
+
+  // AI'ın önerdiği kategori (personel override'ı doğruluk metriğine yansısın diye saklanır)
+  @Prop({ type: String })
+  aiCategory?: string;
+
+  @Prop({ type: Boolean, default: false })
+  categoryOverriddenAfterAi: boolean;
 }
 export const TicketSchema = SchemaFactory.createForClass(Ticket);
 
@@ -60,11 +93,14 @@ TicketSchema.pre('save', function (next) {
   const doc = this as any;
   
   if (doc.isNew) {
-    // Statik Ticket Number. Gerçekte Counter collection kullanılmalı.
-    // Şimdilik zaman damgası + rastgele sayı ile benzersizlik sağlıyoruz.
-    const year = new Date().getFullYear();
-    const random = Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
-    doc.ticketNumber = `TCK-${year}-${random}`;
+    // Ticket number normalde TicketsService.nextTicketNumber() ile (counter
+    // collection, sıralı ve çakışmasız) atanır. Bu blok yalnızca servis
+    // dışından yapılan kayıtlar için fallback'tir.
+    if (!doc.ticketNumber) {
+      const year = new Date().getFullYear();
+      const random = Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
+      doc.ticketNumber = `TCK-${year}-${random}`;
+    }
 
     // SLA Hesaplama
     let hours = 24; // Default ORTA

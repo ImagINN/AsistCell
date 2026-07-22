@@ -33,6 +33,7 @@ model AgentProfile {
   currentLevel         Level         @default(BRONZE)
   totalResolvedTickets Int           @default(0)
   averageRating        Float         @default(0.0)
+  ratedCount           Int           @default(0)
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
 

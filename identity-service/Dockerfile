@@ -41,5 +41,5 @@ COPY --from=builder /app/dist ./dist
 
 EXPOSE 3001
 
-# Prisma migration'larını uygula, sonra uygulamayı başlat
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main"]
+# Şemayı veritabanına senkronla (migrations klasörü yok — db push), sonra uygulamayı başlat
+CMD ["sh", "-c", "npx prisma db push --skip-generate && node dist/main"]

@@ -59,12 +59,23 @@ class RabbitMQClient:
             try:
                 body_str = message.body.decode()
                 payload = json.loads(body_str)
-                
+
                 # NestJS'ten gelen mesaj formatı: { "pattern": "ticket.created", "data": { ticketId: "...", title: "...", description: "..." } }
                 if "data" in payload and "pattern" in payload:
+                    pattern = payload["pattern"]
                     data = payload["data"]
                 else:
+                    pattern = "ticket.created"
                     data = payload
+
+                # Ticket çözüldü/iptal edildi → temsilci kapasitesini geri bırak
+                if pattern == "ticket.released":
+                    await self.handle_ticket_released(data)
+                    return
+
+                if pattern != "ticket.created":
+                    logger.warning(f"Ignoring unknown pattern: {pattern}")
+                    return
 
                 ticket_id = data.get("ticketId")
                 title = data.get("title")
@@ -99,6 +110,33 @@ class RabbitMQClient:
                 logger.error(f"Error processing RabbitMQ message: {e}")
                 # Hatalı mesajları red et ve DQL'e (Dead Letter Queue) girmesi veya düşmesi için process bloğu hata fırlatacak.
                 raise
+
+    async def handle_ticket_released(self, data: dict):
+        """Ticket kapandığında (COZULDU/IPTAL) temsilcinin aktif ticket sayısını azaltır."""
+        # Circular import'u önlemek için lazy import
+        from sqlalchemy import select
+        from app.models.agent import Agent
+
+        agent_id = data.get("agentId")
+        if not agent_id:
+            logger.warning(f"ticket.released without agentId: {data}")
+            return
+
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(select(Agent).where(Agent.id == agent_id))
+            agent = result.scalars().first()
+
+            if not agent:
+                logger.warning(f"ticket.released for unknown agent {agent_id}")
+                return
+
+            agent.active_ticket_count = max(0, agent.active_ticket_count - 1)
+            session.add(agent)
+            await session.commit()
+            logger.info(
+                f"Released capacity for agent {agent_id} "
+                f"(ticket {data.get('ticketId')}, active={agent.active_ticket_count})"
+            )
 
     async def start_consuming(self):
         if not self.channel:

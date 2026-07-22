@@ -25,7 +25,11 @@ consumers:
     jwt_secrets:
       - key: "asistcell-identity-service"       # JWT payload'daki "iss" değeri
         algorithm: HS256
-        secret: "${JWT_SECRET}"                 # .env dosyasından gelir
+        # DİKKAT: Kong declarative config ${VAR} interpolasyonu YAPMAZ ve bu
+        # Kong sürümünde jwt_secrets.secret vault referansını da çözmez.
+        # Bu dosya bir ŞABLONDUR: docker-compose'daki kong komutu, açılışta
+        # ${JWT_SECRET} yer tutucusunu gerçek değerle değiştirip render eder.
+        secret: "${JWT_SECRET}"
 
 # ──────────────────────────────────────────────────────────────
 # SERVICES & ROUTES

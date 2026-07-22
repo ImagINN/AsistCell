@@ -5,7 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 
 export interface JwtPayload {
   sub: string;       // userId
-  email: string;
+  email: string | null;
   role: string;
   iss: string;       // issuer — Kong JWT plugin'i için gerekli
 }
@@ -26,9 +26,11 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       select: {
         id: true,
         email: true,
+        gsmNumber: true,
         firstName: true,
         lastName: true,
         role: true,
+        specialties: true,
         isActive: true,
       },
     });
