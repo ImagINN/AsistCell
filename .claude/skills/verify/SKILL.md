@@ -22,7 +22,7 @@ docker compose ps                            # hepsi (healthy) olmalı, ~15sn be
 Tüm istekler Kong üzerinden: `http://localhost:8000`. JWT zorunlu (auth route'ları hariç).
 
 - Admin girişi: `.env` içindeki `ADMIN_EMAIL` / `ADMIN_PASSWORD` ile `POST /api/v1/auth/login` → `tokens.access_token`.
-- Tipik akış: admin login → `POST /api/v1/auth/users` (TEMSILCI oluştur) → müşteri `register` → `POST /api/v1/tickets` → `PATCH .../assign` → temsilciyle `PATCH .../status` (ISLEMDE → COZULDU) → müşteriyle `POST .../rating` → `GET /api/v1/tickets/stats/dashboard` → `GET /api/v1/game/agents/:id`.
+- Tipik akış: admin login → `POST /api/v1/auth/users` (TEMSILCI oluştur) → müşteri `register` → `POST /api/v1/tickets` → `PATCH .../assign` → temsilciyle `PATCH .../status` (ISLEMDE → COZULDU) → müşteriyle `PATCH .../status` (KAPANDI onayı) → müşteriyle `POST .../rating` (yalnızca KAPANDI'da çalışır, tek seferlik) → `GET /api/v1/tickets/stats/dashboard` → `GET /api/v1/game/agents/:id`.
 - Hazır uçtan uca script örneği scratchpad'de üretilmişti; aynı kalıpla `curl + jq` yaz, e-postaları `$(date +%s)` ile benzersizleştir.
 
 ## Dikkat
