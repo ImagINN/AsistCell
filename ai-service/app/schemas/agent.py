@@ -10,7 +10,9 @@ class AgentBase(BaseModel):
     performance_score: float = 1.0
 
 class AgentCreate(AgentBase):
-    pass
+    # Identity Service'teki kullanıcı id'si verilirse temsilci uçtan uca aynı
+    # kimlikle takip edilir (ticket ataması, gamification profili, kapasite).
+    id: Optional[str] = None
 
 class AgentUpdate(BaseModel):
     name: Optional[str] = None
