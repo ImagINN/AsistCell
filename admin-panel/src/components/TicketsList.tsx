@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import api from '../services/api';
-import { useAuth } from '../contexts/AuthContext';
+import api, { API_ORIGIN } from '../services/api';
 
 interface Ticket {
   ticketNumber: string;
@@ -13,8 +12,7 @@ interface Ticket {
 
 const TicketsList: React.FC = () => {
   const [tickets, setTickets] = useState<Ticket[]>([]);
-  const { user } = useAuth();
-  
+
   useEffect(() => {
     // 1. Mevcut biletleri getir
     const fetchTickets = async () => {
@@ -29,31 +27,34 @@ const TicketsList: React.FC = () => {
     fetchTickets();
 
     // 2. Socket.IO bağlantısını kur
-    const socket: Socket = io('http://localhost:8000', {
+    // jwt query parametresi Kong JWT plugin'i için, auth.token gateway'in
+    // kendi doğrulaması için gönderilir. Oda üyeliğini sunucu token'dan çözer.
+    const token = localStorage.getItem('access_token') || '';
+    const socket: Socket = io(API_ORIGIN, {
       path: '/api/v1/tickets/socket.io',
       transports: ['websocket'],
+      query: { jwt: token },
+      auth: { token },
     });
 
     socket.on('connect', () => {
       console.log('Socket.IO bağlantısı başarılı:', socket.id);
-      // Temsilci ise genel odaya (varsa) veya kendi odasına katılabilir
-      if (user?.id) {
-        socket.emit('joinRoom', `user_${user.id}`);
-      }
     });
 
-    socket.on('ticketCreated', (data: { ticket: Ticket }) => {
-      setTickets((prev) => [data.ticket, ...prev]);
+    // Gateway yeni talepleri tüm personele yayınlar
+    socket.on('new_ticket_arrived', (ticket: Ticket) => {
+      setTickets((prev) => [ticket, ...prev]);
     });
 
-    socket.on('ticketStatusUpdated', (data: { ticket: Ticket }) => {
-      setTickets((prev) => prev.map(t => t.ticketNumber === data.ticket.ticketNumber ? data.ticket : t));
+    // Durum/atama güncellemeleri (AI ataması dahil) genel yayından gelir
+    socket.on('ticket_updated', (ticket: Ticket) => {
+      setTickets((prev) => prev.map(t => t.ticketNumber === ticket.ticketNumber ? ticket : t));
     });
 
     return () => {
       socket.disconnect();
     };
-  }, [user]);
+  }, []);
 
   const updateStatus = async (ticketNumber: string, status: string) => {
     try {
