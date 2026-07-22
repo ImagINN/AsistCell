@@ -59,6 +59,10 @@ export class Ticket extends Document {
   @Prop({ type: Date })
   resolvedAt?: Date;
 
+  // Müşteri onayı veya 48 saat sonrası otomatik kapanış
+  @Prop({ type: Date })
+  closedAt?: Date;
+
   // Müşteri memnuniyet puanı (1-5), yalnızca COZULDU sonrası bir kez verilebilir
   @Prop({ type: Number, min: 1, max: 5 })
   rating?: number;
@@ -85,6 +89,10 @@ export class Ticket extends Document {
 
   @Prop({ type: Boolean, default: false })
   categoryOverriddenAfterAi: boolean;
+
+  // Süpervizör önceliği manuel belirlediyse AI analizi bunu ezmez
+  @Prop({ type: Boolean, default: false })
+  priorityManuallySet: boolean;
 }
 export const TicketSchema = SchemaFactory.createForClass(Ticket);
 
