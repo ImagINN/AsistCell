@@ -32,6 +32,19 @@ model User {
   @@map("users")
 }
 
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String?
+  actorEmail String?
+  action     String
+  targetId   String?
+  detail     Json?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
 model RefreshToken {
   id        String   @id @default(uuid())
   token     String   @unique
