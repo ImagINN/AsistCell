@@ -52,6 +52,29 @@ export class Ticket extends Document {
 
   @Prop({ type: String })
   resolutionNote?: string;
+
+  @Prop({ type: Date })
+  resolvedAt?: Date;
+
+  // Müşteri memnuniyet puanı (1-5), yalnızca COZULDU sonrası bir kez verilebilir
+  @Prop({ type: Number, min: 1, max: 5 })
+  rating?: number;
+
+  @Prop({ type: String, maxlength: 500 })
+  ratingComment?: string;
+
+  @Prop({ type: Date })
+  ratedAt?: Date;
+
+  // AI doğruluk takibi: analiz yapıldı mı, atama kaynağı ne, AI ataması manuel değiştirildi mi
+  @Prop({ type: Boolean, default: false })
+  aiProcessed: boolean;
+
+  @Prop({ type: String, enum: ['AI', 'MANUAL'] })
+  assignmentSource?: string;
+
+  @Prop({ type: Boolean, default: false })
+  reassignedAfterAi: boolean;
 }
 export const TicketSchema = SchemaFactory.createForClass(Ticket);
 

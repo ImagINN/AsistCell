@@ -6,6 +6,9 @@ import { Ticket, Message } from './schemas/ticket.schema';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { UpdateTicketStatusDto } from './dto/update-ticket-status.dto';
 import { AddMessageDto } from './dto/add-message.dto';
+import { RateTicketDto } from './dto/rate-ticket.dto';
+import { AssignTicketDto } from './dto/assign-ticket.dto';
+import { ListTicketsQueryDto } from './dto/list-tickets-query.dto';
 import { TicketStatus, MessageRole, TicketPriority, isStaff } from '../common/enums';
 import { StateMachineException } from '../common/exceptions/state-machine.exception';
 import { TicketsGateway } from './tickets.gateway';
@@ -88,8 +91,12 @@ export class TicketsService {
     return savedTicket;
   }
 
-  async findAll(): Promise<Ticket[]> {
-    return this.ticketModel.find().sort({ createdAt: -1 }).exec();
+  async findAll(query: ListTicketsQueryDto = {}): Promise<Ticket[]> {
+    const filter: Record<string, any> = {};
+    if (query.assignedAgentId) filter.assignedAgentId = query.assignedAgentId;
+    if (query.status) filter.status = query.status;
+    if (query.priority) filter.priority = query.priority;
+    return this.ticketModel.find(filter).sort({ createdAt: -1 }).exec();
   }
 
   async findByCustomer(customerId: string): Promise<Ticket[]> {
@@ -124,8 +131,11 @@ export class TicketsService {
     const previousStatus = ticket.status;
     ticket.status = updateDto.status;
 
-    if (updateDto.status === TicketStatus.COZULDU && updateDto.resolutionNote) {
-      ticket.resolutionNote = updateDto.resolutionNote;
+    if (updateDto.status === TicketStatus.COZULDU) {
+      ticket.resolvedAt = new Date();
+      if (updateDto.resolutionNote) {
+        ticket.resolutionNote = updateDto.resolutionNote;
+      }
     }
 
     const updated = await ticket.save();
@@ -171,6 +181,145 @@ export class TicketsService {
     }
   }
 
+  // ================= Puanlama =================
+  // Yalnızca talep sahibi, yalnızca COZULDU durumunda ve bir kez puan verebilir.
+  async rateTicket(ticketNumber: string, dto: RateTicketDto, userId: string): Promise<Ticket> {
+    const ticket = await this.findOne(ticketNumber);
+
+    if (ticket.customerId !== userId) {
+      throw new ForbiddenException('You can only rate your own tickets');
+    }
+    if (ticket.status !== TicketStatus.COZULDU) {
+      throw new ForbiddenException('Only resolved tickets can be rated');
+    }
+    if (ticket.rating) {
+      throw new ForbiddenException('This ticket has already been rated');
+    }
+
+    ticket.rating = dto.rating;
+    if (dto.comment) ticket.ratingComment = dto.comment;
+    ticket.ratedAt = new Date();
+
+    const updated = await ticket.save();
+
+    // Gamification'a müşteri memnuniyet eventi
+    if (ticket.assignedAgentId) {
+      this.gamificationClient.emit('ticket.rated', {
+        ticketId: ticket.ticketNumber,
+        agentId: ticket.assignedAgentId,
+        rating: dto.rating,
+      });
+    }
+
+    this.ticketsGateway.notifyTicketStatusUpdated(ticket.customerId, updated);
+
+    return updated;
+  }
+
+  // ================= Manuel Atama (Süpervizör/Admin) =================
+  async assignTicket(ticketNumber: string, dto: AssignTicketDto): Promise<Ticket> {
+    const ticket = await this.findOne(ticketNumber);
+
+    if (ticket.status === TicketStatus.COZULDU || ticket.status === TicketStatus.IPTAL) {
+      throw new ForbiddenException('Closed tickets cannot be assigned');
+    }
+
+    // AI'ın yaptığı atama manuel değiştiriliyorsa doğruluk metriği için işaretle
+    if (
+      ticket.assignmentSource === 'AI' &&
+      ticket.assignedAgentId &&
+      ticket.assignedAgentId !== dto.agentId
+    ) {
+      ticket.reassignedAfterAi = true;
+    }
+
+    ticket.assignedAgentId = dto.agentId;
+    ticket.assignmentSource = 'MANUAL';
+    if (ticket.status === TicketStatus.YENI) {
+      ticket.status = TicketStatus.ATANDI;
+    }
+
+    const updated = await ticket.save();
+
+    this.ticketsGateway.notifyTicketStatusUpdated(ticket.customerId, updated);
+
+    return updated;
+  }
+
+  // ================= Dashboard İstatistikleri (Süpervizör/Admin) =================
+  async getDashboardStats() {
+    const [byStatus, byPriority, slaAgg, ratingAgg, aiAgg] = await Promise.all([
+      this.ticketModel.aggregate([
+        { $group: { _id: '$status', count: { $sum: 1 } } },
+      ]),
+      this.ticketModel.aggregate([
+        { $group: { _id: '$priority', count: { $sum: 1 } } },
+      ]),
+      // SLA uyumu: çözülen taleplerde resolvedAt <= slaDeadline oranı
+      this.ticketModel.aggregate([
+        { $match: { status: TicketStatus.COZULDU, slaDeadline: { $ne: null } } },
+        {
+          $group: {
+            _id: null,
+            resolved: { $sum: 1 },
+            slaMet: {
+              $sum: {
+                $cond: [
+                  { $lte: [{ $ifNull: ['$resolvedAt', '$updatedAt'] }, '$slaDeadline'] },
+                  1,
+                  0,
+                ],
+              },
+            },
+          },
+        },
+      ]),
+      this.ticketModel.aggregate([
+        { $match: { rating: { $ne: null } } },
+        { $group: { _id: null, avgRating: { $avg: '$rating' }, ratedCount: { $sum: 1 } } },
+      ]),
+      // AI doğruluğu: AI'ın atadığı taleplerin ne kadarı manuel değiştirilmedi
+      this.ticketModel.aggregate([
+        { $match: { aiProcessed: true } },
+        {
+          $group: {
+            _id: null,
+            analyzed: { $sum: 1 },
+            reassigned: { $sum: { $cond: ['$reassignedAfterAi', 1, 0] } },
+          },
+        },
+      ]),
+    ]);
+
+    const statusCounts = Object.fromEntries(byStatus.map((s) => [s._id, s.count]));
+    const priorityCounts = Object.fromEntries(byPriority.map((p) => [p._id, p.count]));
+    const total = byStatus.reduce((sum, s) => sum + s.count, 0);
+    const open =
+      total - (statusCounts[TicketStatus.COZULDU] ?? 0) - (statusCounts[TicketStatus.IPTAL] ?? 0);
+
+    const sla = slaAgg[0];
+    const rating = ratingAgg[0];
+    const ai = aiAgg[0];
+
+    return {
+      totals: { total, open, byStatus: statusCounts, byPriority: priorityCounts },
+      sla: {
+        resolvedWithSla: sla?.resolved ?? 0,
+        slaMet: sla?.slaMet ?? 0,
+        complianceRate: sla?.resolved ? sla.slaMet / sla.resolved : null,
+      },
+      satisfaction: {
+        avgRating: rating?.avgRating ?? null,
+        ratedCount: rating?.ratedCount ?? 0,
+      },
+      ai: {
+        analyzedCount: ai?.analyzed ?? 0,
+        reassignedCount: ai?.reassigned ?? 0,
+        accuracyRate: ai?.analyzed ? 1 - ai.reassigned / ai.analyzed : null,
+      },
+    };
+  }
+
   async addMessage(ticketNumber: string, dto: AddMessageDto, senderId: string, senderRole: MessageRole): Promise<Ticket> {
     const ticket = await this.findOne(ticketNumber);
 
@@ -207,11 +356,22 @@ export class TicketsService {
   async updateAiAnalysis(ticketNumber: string, analysisData: any): Promise<Ticket> {
     const ticket = await this.findOne(ticketNumber);
 
+    ticket.aiProcessed = true;
+
+    // Analiz geç geldiyse ve talep bu arada kapandıysa hiçbir alanı ezme —
+    // aksi halde çözülmüş/iptal edilmiş talep tekrar ATANDI'ya döner.
+    if (ticket.status === TicketStatus.COZULDU || ticket.status === TicketStatus.IPTAL) {
+      return ticket.save();
+    }
+
     ticket.category = analysisData.category;
     ticket.priority = analysisData.priority;
 
-    if (analysisData.assignedAgentId) {
+    // AI yalnızca henüz atanmamış talepleri atayabilir; manuel atama (süpervizör)
+    // her zaman önceliklidir ve geç gelen analizle geri alınmaz.
+    if (analysisData.assignedAgentId && !ticket.assignedAgentId) {
        ticket.assignedAgentId = analysisData.assignedAgentId;
+       ticket.assignmentSource = 'AI';
        ticket.status = TicketStatus.ATANDI; // State transition
     }
 
