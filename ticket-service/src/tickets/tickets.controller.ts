@@ -67,6 +67,15 @@ export class TicketsController {
     return this.ticketsService.getDashboardStats();
   }
 
+  // Takım performans tablosu: temsilci bazlı çözülen talep, ortalama puan, SLA uyumu
+  @Get('stats/team')
+  getTeamPerformance(@CurrentUser() user: JwtUser) {
+    if (user.role !== UserRole.SUPERVIZOR && user.role !== UserRole.ADMIN) {
+      this.auditClient.deny(user, 'DASHBOARD_VIEW', 'Takım performansı yalnızca süpervizör ve admin tarafından görüntülenebilir');
+    }
+    return this.ticketsService.getTeamPerformance();
+  }
+
   // Müşteri kendi taleplerini listeler; SUPERVIZOR/ADMIN herhangi bir müşterininkini görebilir
   @Get('customer/:customerId')
   findByCustomer(@CurrentUser() user: JwtUser, @Param('customerId') customerId: string) {
@@ -144,14 +153,28 @@ export class TicketsController {
     return this.ticketsService.rateTicket(ticketNumber, dto, user.sub);
   }
 
+  // Mesaj gönderme — yalnızca talep sahibi müşteri ve atanan temsilci (kontrol serviste)
   @Post(':ticketNumber/messages')
   addMessage(
     @Param('ticketNumber') ticketNumber: string,
     @CurrentUser() user: JwtUser,
     @Body() dto: AddMessageDto
   ) {
-    const senderRole = isStaff(user.role) ? MessageRole.TEMSILCI : MessageRole.MUSTERI;
-    return this.ticketsService.addMessage(ticketNumber, dto, user.sub, senderRole);
+    return this.ticketsService.addMessage(ticketNumber, dto, user);
+  }
+
+  // Mesaj thread'i — kronolojik sırayla. Görüntüleme kuralları findOne ile aynı:
+  // müşteri kendi talebini, temsilci kendine atananı, SUPERVIZOR/ADMIN hepsini görür.
+  @Get(':ticketNumber/messages')
+  async getMessages(@CurrentUser() user: JwtUser, @Param('ticketNumber') ticketNumber: string) {
+    const ticket = await this.ticketsService.findOne(ticketNumber);
+    if (user.role === UserRole.USER && ticket.customerId !== user.sub) {
+      this.auditClient.deny(user, 'TICKET_MESSAGES_VIEW', 'Yalnızca kendi taleplerinizin mesajlarını görüntüleyebilirsiniz', { ticketNumber });
+    }
+    if (user.role === UserRole.TEMSILCI && ticket.assignedAgentId !== user.sub) {
+      this.auditClient.deny(user, 'TICKET_MESSAGES_VIEW', 'Yalnızca size atanan taleplerin mesajlarını görüntüleyebilirsiniz', { ticketNumber });
+    }
+    return this.ticketsService.getMessages(ticketNumber);
   }
 
   // --- RabbitMQ Event Listeners ---

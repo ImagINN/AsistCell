@@ -1,0 +1,151 @@
+text,category
+"Faturam bu ay iki katı geldi, açıklama istiyorum",FATURA
+"Kasım faturamda tanımadığım 89 TL'lik ek ücret var, bu nedir?",FATURA
+"Fatura tutarım her ay farklı geliyor, sabit tarifedeyim halbuki",FATURA
+"Yurtdışı kullanım ücreti yansıtılmış ama ben yurtdışına çıkmadım",FATURA
+"E-faturam mail adresime gelmiyor, üç aydır göremiyorum",FATURA
+"Otomatik ödeme talimatım olduğu halde faturam ödenmemiş görünüyor, gecikme faizi çıkmış",FATURA
+"Faturamda mobil ödeme diye bir kalem var, ben hiçbir şey satın almadım",FATURA
+"İptal ettiğim servisin ücreti hala faturama yansıyor",FATURA
+"Fatura son ödeme tarihim geçmiş, yapılandırma yapabilir miyim?",FATURA
+"Bu ayki faturamı görüntüleyemiyorum, uygulama hata veriyor",FATURA
+"Kullanmadığım halde melodi servisi ücreti kesilmiş, iade istiyorum",FATURA
+"Faturama itiraz etmek istiyorum, aşırı yüksek geldi",FATURA
+"Aylık 120 TL anlaşmıştık ama fatura 187 TL gelmiş, aradaki fark ne?",FATURA
+"Geçen ay ödediğim fatura hala ödenmedi görünüyor, hattım kısıtlanmış",FATURA
+"Fatura kesim tarihimi değiştirmek istiyorum, maaş günüme denk gelsin",FATURA
+"İnternet aşım ücreti 250 TL yansımış, bilgilendirme SMS'i bile gelmedi",FATURA
+"Kağıt fatura ücreti alınıyormuş benden, e-faturaya geçmek istiyorum",FATURA
+"Babamın hattının faturası benim karta çekilmiş, bu talimatı ben vermedim",FATURA
+"Taahhüt indirimim bu ay uygulanmamış, fatura tam fiyattan gelmiş",FATURA
+"Fatura ödememi yaptım ama sistemde görünmüyor, dekont elimde",FATURA
+"5 TL'lik SMS paketi ücreti her ay kesiliyor, ben böyle bir paket almadım",FATURA
+"Ay ortasında tarife değiştirdim, iki tarife ücreti birden yansımış",FATURA
+"Fatura üst limitim vardı, nasıl aşılmış olabilir?",FATURA
+"Vergi ve kesintiler faturamın yarısını oluşturuyor, detaylı döküm istiyorum",FATURA
+"Ek hat aldığımda ilk ay ücretsiz denmişti ama ücret alınmış",FATURA
+"Ödemediğim iddia edilen 2023 yılından kalma bir borç çıkarılmış",FATURA
+"Fatura detayında gece 03:00'te yapılmış aramalar var, ben yapmadım",FATURA
+"Dijital servis aboneliği faturama eklenmiş, onay vermedim iptalini ve iadesini istiyorum",FATURA
+"Şirket hattımın faturası şahsi hesabıma kesilmiş, düzeltilmesi lazım",FATURA
+"Son faturamda cayma bedeli görünüyor ama ben hattımı iptal etmedim",FATURA
+"Evde çekim gücü çok düşük, sürekli kesiliyor",SEBEKE
+"İki gündür internetim yok, modem ışıkları yanıyor ama bağlantı kurulmuyor",SEBEKE
+"Telefonum sürekli şebeke arıyor, arama yapamıyorum",SEBEKE
+"Mahallemizde dün akşamdan beri hiçbirimizin hattı çekmiyor",SEBEKE
+"4.5G hızım çok yavaş, video bile açılmıyor",SEBEKE
+"Ev interneti akşam saatlerinde aşırı yavaşlıyor, 100 megabit alıyorum ama 5 megabit hız var",SEBEKE
+"Bodrum katında sinyal tamamen kayboluyor, konuşma yapamıyorum",SEBEKE
+"Aramalarım sürekli düşüyor, karşı taraf sesimi duymuyor",SEBEKE
+"İnternet kotam bitmedi ama hız çok düştü, sayfa açamıyorum",SEBEKE
+"Fiber altyapı geldi deniyor ama bağlantımız hala çok yavaş",SEBEKE
+"Şehir dışına çıkınca telefon tamamen çekmez oluyor",SEBEKE
+"Video konferansta sürekli donma yaşıyorum, işimi yapamıyorum",SEBEKE
+"Gece yarısından sonra internet tamamen kesiliyor, sabah geri geliyor",SEBEKE
+"Sitemizde baz istasyonu kaldırılmış, o günden beri çekim sorunu yaşıyoruz",SEBEKE
+"Mobil veri açık olduğu halde internete bağlanamıyorum",SEBEKE
+"SMS'lerim geç gidiyor, bazen hiç ulaşmıyor",SEBEKE
+"Yağmur yağınca internetimiz kesiliyor, altyapı sorunu var sanırım",SEBEKE
+"Oyun oynarken ping değerim 500'ün üzerine çıkıyor, bağlantı çok kararsız",SEBEKE
+"Asansörde ve otoparkta telefon hiç çekmiyor, acil durumda mahsur kalabiliriz",SEBEKE
+"İnternet bağlantım günde en az on kere kopup geri geliyor",SEBEKE
+"Yeni taşındığım evde operatörünüzün hiç sinyali yok",SEBEKE
+"Hafta sonundan beri yüklemelerim çok yavaş, upload hızı neredeyse sıfır",SEBEKE
+"Konuşma sırasında ses robotlaşıyor, karşı tarafı anlayamıyorum",SEBEKE
+"Wifi çalışıyor ama internete çıkmıyor, kablolu bağlantı da aynı",SEBEKE
+"Deprem sonrası bölgede şebeke hala düzelmedi, iletişim kuramıyoruz",SEBEKE
+"Arama yaparken şebeke meşgul uyarısı alıyorum, numara doğru olduğu halde",SEBEKE
+"İlçemizde internet altyapısı sürekli arızalanıyor, ayda üç kere teknik ekip geliyor",SEBEKE
+"Canlı yayın açtığımda bağlantı sürekli kopuyor, kotam da duruyor",SEBEKE
+"Telefonda 5G görünüyor ama hız 3G'den bile kötü",SEBEKE
+"Komşularımın interneti çalışırken bizim daireye hiç sinyal gelmiyor",SEBEKE
+"Telefonum şarj olmuyor, şarj aletini değiştirdim yine olmadı",CIHAZ
+"Sizden aldığım modem sürekli kendini yeniden başlatıyor",CIHAZ
+"Kampanyayla aldığım telefonun ekranında ölü pikseller var, değişim istiyorum",CIHAZ
+"SIM kartım okunmuyor, telefon kart takılı değil diyor",CIHAZ
+"Yeni gelen modemin kurulumunu yapamadım, kurulum için teknisyen istiyorum",CIHAZ
+"Cihaz kampanyasından aldığım tablet açılmıyor, garanti sürecini başlatmak istiyorum",CIHAZ
+"Telefonumun bataryası bir saatte bitiyor, servise göndermek istiyorum",CIHAZ
+"Modemin anteni kırık geldi, kutudan hasarlı çıktı",CIHAZ
+"Akıllı saatimin eSIM'i aktive olmuyor, cihaz hata veriyor",CIHAZ
+"Aldığım telefonun hoparlöründen cızırtılı ses geliyor",CIHAZ
+"Modem çok ısınıyor, dokunulmayacak kadar sıcak oluyor, tehlikeli mi?",CIHAZ
+"Telefonumu güncelledikten sonra dokunmatik çalışmamaya başladı",CIHAZ
+"Router'ın wifi ışığı yanmıyor, kablosuz yayın yapmıyor",CIHAZ
+"Kampanyalı telefonum iki haftada üç kere donup kapandı, iade etmek istiyorum",CIHAZ
+"SIM kart kilitlendi, PUK kodunu bilmiyorum",CIHAZ
+"Yeni aldığım cihazın kamerası odaklama yapmıyor",CIHAZ
+"TV kutusu görüntü vermiyor, ışığı yanıp sönüyor sürekli",CIHAZ
+"Telefonun şarj soketi gevşedi, kablo takılı durmuyor",CIHAZ
+"Sizden gelen modem eski çıktı, fiber hızını desteklemiyormuş",CIHAZ
+"Cihazımın garantisi kapsamında ekran değişimi yapılır mı, ekran kendiliğinden çatladı",CIHAZ
+"Kulaklık kampanyasından gelen ürün sahte gibi duruyor, seri numarası doğrulanmıyor",CIHAZ
+"Telefon suya düştü, yetkili servis süreci nasıl işliyor?",CIHAZ
+"Modemin adaptörü bozuldu, yenisini nereden temin edebilirim?",CIHAZ
+"eSIM aktarımı sırasında cihaz hata verdi, şimdi iki telefonda da hat çalışmıyor",CIHAZ
+"Taksitle aldığım bilgisayar teslim edileli bir hafta oldu ama açılmıyor",CIHAZ
+"Telefonumun mikrofonunu karşı taraf duymuyor, cihaz kaynaklı sanırım",CIHAZ
+"Modem kutusundan çıkan ethernet kablosu arızalı, bağlantı kopuk gidiyor",CIHAZ
+"Cihazım sürekli yeniden başlıyor, yazılım güncellemesi de çözmedi",CIHAZ
+"Aldığım telefonun rengi siparişimden farklı geldi, değişim talep ediyorum",CIHAZ
+"Fatura cihaz taksidim bitti ama cihaz kilidi hala açılmadı",CIHAZ
+"Mevcut tarifem pahalı geliyor, daha uygun bir tarifeye geçmek istiyorum",TARIFE
+"Tarifemin internetini yükseltmek istiyorum, 20 GB yetmiyor",TARIFE
+"Gençlik tarifesine geçiş şartları neler, öğrenciyim",TARIFE
+"Tarifemde konuşma dakikam çok fazla, internetim az, dengeli bir paket önerir misiniz?",TARIFE
+"Yeni çıkan kampanyalı tarifeye mevcut müşteriler geçebiliyor mu?",TARIFE
+"Taahhüdüm bitti, hangi tarifelere geçebilirim?",TARIFE
+"Ek internet paketi almak istiyorum, ay sonuna kadar 5 GB yeter",TARIFE
+"Tarifemi değiştirdim ama hala eski tarifem görünüyor",TARIFE
+"Aile paketine iki hat daha eklemek istiyorum",TARIFE
+"Yurtdışı tarife paketlerinden hangisi Avrupa için uygun?",TARIFE
+"Faturasız hattan faturalı tarifeye geçmek istiyorum",TARIFE
+"Tarifeme sosyal medya paketi ekletmek istiyorum",TARIFE
+"Sınırsız internet tarifeleriniz var mı, evden çalışıyorum",TARIFE
+"Mevcut tarifemin taahhüt süresi ne zaman doluyor öğrenebilir miyim?",TARIFE
+"Emekli tarifesi diye bir kampanya duydum, şartları nedir?",TARIFE
+"Tarife değişikliği yaptım, ne zaman aktif olur?",TARIFE
+"İkinci hattım için en ucuz tarife hangisi, sadece yedekte duracak",TARIFE
+"Şirket çalışanlarına özel kurumsal tarife indiriminden nasıl faydalanırım?",TARIFE
+"Tarifemdeki dakikalar her yöne mi geçerli, sadece aynı operatöre mi?",TARIFE
+"Paketimdeki internet bitince otomatik ek paket tanımlanmasın istiyorum",TARIFE
+"12 aylık taahhütle tarife yenilersem aylık ücret düşüyor mu?",TARIFE
+"5G destekli tarifelere geçiş ücretli mi?",TARIFE
+"Kullanmadığım aylarda tarifemi dondurabilir miyim?",TARIFE
+"Tarife yükseltince mevcut kalan GB'lerim devrediyor mu?",TARIFE
+"Çocuğum için kontrollü içerikli bir çocuk tarifesi arıyorum",TARIFE
+"Her ay ek paket almaktan yoruldum, daha büyük tarifeye geçmek mantıklı mı?",TARIFE
+"İnternet ve TV'yi tek faturada birleştiren paketiniz var mı?",TARIFE
+"Kampanya mesajı geldi ama linkteki tarife fiyatı farklı, hangisi geçerli?",TARIFE
+"Numaramı taşımadan sadece tarife teklifinizi öğrenmek istiyorum",TARIFE
+"Tarifeme gece sınırsız internet ekleyebilir miyim?",TARIFE
+"Hattımı iptal etmek istiyorum, artık kullanmıyorum",IPTAL
+"Aboneliğimi tamamen kapatmak istiyorum, başka operatöre geçeceğim",IPTAL
+"Ev internetimi iptal ettirmek istiyorum, taşınıyorum ve yeni adreste altyapınız yok",IPTAL
+"Taahhüt süremin bitiminde hattımın otomatik kapanmasını istiyorum",IPTAL
+"İkinci hattımı kullanmıyorum, iptal edin lütfen",IPTAL
+"Numara taşıma ile başka operatöre geçiş yapacağım, süreç nasıl işliyor?",IPTAL
+"Vefat eden babamın hattını kapattırmak istiyorum, hangi belgeler gerekli?",IPTAL
+"TV aboneliğimi iptal etmek istiyorum, hiç izlemiyoruz",IPTAL
+"Cayma bedeli ödeyerek taahhüdümü sonlandırmak istiyorum",IPTAL
+"Yurtdışına taşınıyorum, tüm aboneliklerimi kapatmam gerekiyor",IPTAL
+"İptal talebimi geçen hafta ilettim ama hattım hala aktif görünüyor",IPTAL
+"Şirketimiz kapandı, kurumsal hatların tamamının iptalini istiyoruz",IPTAL
+"İnternet aboneliğimi dondurmak değil, kalıcı olarak iptal etmek istiyorum",IPTAL
+"Hattımı kapatmak istiyorum, çağrı merkezinde sürekli beklemeye alınıyorum",IPTAL
+"Ek paket aboneliğimden çıkmak istiyorum, her ay otomatik yenileniyor",IPTAL
+"Dijital platform üyeliğimi iptal edin, faturamdan ücret kesilmeye devam ediyor",IPTAL
+"Hat sahibi benim ama iptal için neden mağazaya gitmem gerekiyor?",IPTAL
+"Aboneliğimi iptal ettim, kalan alacağımın iadesini istiyorum",IPTAL
+"Modem iade süreci nasıl işliyor, aboneliğimi kapattım",IPTAL
+"Kullanmadığım data hattının iptalini talep ediyorum",IPTAL
+"Babaannemin adına kayıtlı hattı vekaletle kapattırabilir miyim?",IPTAL
+"İptal başvurumun onaylandığına dair yazılı belge talep ediyorum",IPTAL
+"Kampanya bitmeden iptal edersem ne kadar cayma bedeli öderim?",IPTAL
+"Taahhüdüm bitti, hattımı kapatıp faturasıza dönmek istiyorum",IPTAL
+"İnternetimi iptal etmek istiyorum, hız sorunu çözülmedi ve artık uğraşmak istemiyorum",IPTAL
+"Hattım kullanılmadığı için kapanmış, ben iptal talebinde bulunmadım, geri açılsın",IPTAL
+"Çift hat kampanyasındaki ikinci hattı iptal edersem ilk hattım etkilenir mi?",IPTAL
+"Aylardır kullanmadığım hattın ücreti kesiliyor, derhal iptal edilmesini istiyorum",IPTAL
+"Abonelik iptalim sırasında bana danışılmadan yeni kampanya tanımlanmış, bunu da iptal edin",IPTAL
+"Fesih dilekçemi e-posta ile gönderdim, işleme alındı mı öğrenmek istiyorum",IPTAL
