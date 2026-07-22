@@ -8,10 +8,34 @@ interface Ticket {
   status: string;
   priority: string;
   createdAt: string;
+  slaDeadline?: string;
+  resolvedAt?: string;
 }
+
+// SLA COZULDU/KAPANDI/IPTAL durumlarında durur
+const SLA_STOPPED_STATUSES = ['COZULDU', 'KAPANDI', 'IPTAL'];
+
+const isSlaStopped = (ticket: Ticket) => SLA_STOPPED_STATUSES.includes(ticket.status);
+
+const isSlaOverdue = (ticket: Ticket, now: number) =>
+  !!ticket.slaDeadline && !isSlaStopped(ticket) && now > new Date(ticket.slaDeadline).getTime();
+
+const formatRemaining = (ms: number) => {
+  const totalMinutes = Math.floor(Math.abs(ms) / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours > 0 ? `${hours}sa ${minutes}dk` : `${minutes}dk`;
+};
 
 const TicketsList: React.FC = () => {
   const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [now, setNow] = useState(Date.now());
+
+  // Kalan SLA süresi sayacı — 30 saniyede bir tazelenir
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     // 1. Mevcut biletleri getir
@@ -56,6 +80,50 @@ const TicketsList: React.FC = () => {
     };
   }, []);
 
+  // SLA aşan KRITIK talepler süpervizör panelinde en üstte görünür (spec 4.4)
+  const sortedTickets = [...tickets].sort((a, b) => {
+    const aTop = isSlaOverdue(a, now) && a.priority === 'KRITIK' ? 1 : 0;
+    const bTop = isSlaOverdue(b, now) && b.priority === 'KRITIK' ? 1 : 0;
+    if (aTop !== bTop) return bTop - aTop;
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
+
+  const slaChip = (ticket: Ticket) => {
+    if (!ticket.slaDeadline) return null;
+    const deadline = new Date(ticket.slaDeadline).getTime();
+
+    if (isSlaStopped(ticket)) {
+      const met = !ticket.resolvedAt || new Date(ticket.resolvedAt).getTime() <= deadline;
+      return (
+        <span className={`px-3 py-1 rounded-full text-xs font-medium border ${
+          met ? 'bg-green-50 text-green-700 border-green-200'
+              : 'bg-gray-100 text-gray-600 border-gray-300'
+        }`}>
+          {met ? 'SLA karşılandı' : 'SLA aşılarak kapandı'}
+        </span>
+      );
+    }
+
+    if (isSlaOverdue(ticket, now)) {
+      // Aşım: KRITIK kırmızı, YUKSEK turuncu, diğerleri görsel uyarı (spec 4.4)
+      const cls =
+        ticket.priority === 'KRITIK' ? 'bg-red-600 text-white border-red-700 animate-pulse' :
+        ticket.priority === 'YUKSEK' ? 'bg-orange-500 text-white border-orange-600' :
+        'bg-amber-100 text-amber-800 border-amber-300';
+      return (
+        <span className={`px-3 py-1 rounded-full text-xs font-bold border ${cls}`}>
+          SLA {formatRemaining(now - deadline)} aşıldı
+        </span>
+      );
+    }
+
+    return (
+      <span className="px-3 py-1 rounded-full text-xs font-medium border bg-emerald-50 text-emerald-700 border-emerald-200">
+        SLA: {formatRemaining(deadline - now)} kaldı
+      </span>
+    );
+  };
+
   const updateStatus = async (ticketNumber: string, status: string) => {
     try {
       await api.patch(`/tickets/${ticketNumber}/status`, { status });
@@ -79,8 +147,14 @@ const TicketsList: React.FC = () => {
         {tickets.length === 0 ? (
           <p className="p-8 text-center text-gray-500">Henüz talep bulunmuyor.</p>
         ) : (
-          tickets.map((ticket) => (
-            <div key={ticket.ticketNumber} className="p-6 hover:bg-gray-50 transition-colors duration-150 flex items-center justify-between group">
+          sortedTickets.map((ticket) => (
+            <div key={ticket.ticketNumber} className={`p-6 hover:bg-gray-50 transition-colors duration-150 flex items-center justify-between group ${
+              isSlaOverdue(ticket, now)
+                ? ticket.priority === 'KRITIK' ? 'bg-red-50 border-l-4 border-red-600'
+                : ticket.priority === 'YUKSEK' ? 'bg-orange-50 border-l-4 border-orange-500'
+                : 'bg-amber-50 border-l-4 border-amber-400'
+                : ''
+            }`}>
               <div>
                 <h3 className="font-medium text-gray-900 group-hover:text-brand-primary transition-colors">
                   {ticket.title}
@@ -92,6 +166,7 @@ const TicketsList: React.FC = () => {
                 </div>
               </div>
               <div className="flex items-center gap-4">
+                {slaChip(ticket)}
                 <span className={`px-3 py-1 rounded-full text-xs font-medium border ${
                   ticket.priority === 'KRITIK' ? 'bg-red-50 text-red-700 border-red-200' :
                   ticket.priority === 'YUKSEK' ? 'bg-orange-50 text-orange-700 border-orange-200' :
@@ -111,6 +186,7 @@ const TicketsList: React.FC = () => {
                   <option value="ISLEMDE">İşlemde</option>
                   <option value="MUSTERI_BEKLENIYOR">Müşteri Bekleniyor</option>
                   <option value="COZULDU">Çözüldü</option>
+                  <option value="KAPANDI">Kapandı</option>
                   <option value="IPTAL">İptal</option>
                 </select>
               </div>

@@ -4,6 +4,7 @@ export enum TicketStatus {
   ISLEMDE = 'ISLEMDE',
   MUSTERI_BEKLENIYOR = 'MUSTERI_BEKLENIYOR',
   COZULDU = 'COZULDU',
+  KAPANDI = 'KAPANDI',
   IPTAL = 'IPTAL',
 }
 

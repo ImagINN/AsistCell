@@ -8,6 +8,7 @@ import { RateTicketDto } from './dto/rate-ticket.dto';
 import { AssignTicketDto } from './dto/assign-ticket.dto';
 import { ListTicketsQueryDto } from './dto/list-tickets-query.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
+import { UpdatePriorityDto } from './dto/update-priority.dto';
 import { MessageRole, UserRole, isStaff } from '../common/enums';
 import { JwtAuthGuard, JwtUser } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -121,6 +122,16 @@ export class TicketsController {
     @Body() dto: UpdateCategoryDto,
   ) {
     return this.ticketsService.updateCategory(ticketNumber, dto, user);
+  }
+
+  // Öncelik değiştirme — yalnızca SUPERVIZOR (matris kontrolü serviste)
+  @Patch(':ticketNumber/priority')
+  updatePriority(
+    @Param('ticketNumber') ticketNumber: string,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: UpdatePriorityDto,
+  ) {
+    return this.ticketsService.updatePriority(ticketNumber, dto, user);
   }
 
   // Çözüm puanlama — sadece talep sahibi müşteri
