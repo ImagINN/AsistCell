@@ -20,6 +20,10 @@ export enum MessageRole {
   SISTEM = 'SISTEM',
 }
 
+export enum TicketChannel {
+  WEB = 'WEB',
+}
+
 // Identity Service'in JWT payload'ındaki rol değerleri
 export enum UserRole {
   USER = 'USER',

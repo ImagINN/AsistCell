@@ -6,14 +6,16 @@ import { AuditService } from '../audit/audit.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 
-type SafeUser = Omit<User, 'password'>;
+type SafeUser = Omit<User, 'password' | 'failedLoginAttempts' | 'lockedUntil'>;
 
 const USER_SELECT = {
   id: true,
   email: true,
+  gsmNumber: true,
   firstName: true,
   lastName: true,
   role: true,
+  specialties: true,
   isActive: true,
   createdAt: true,
   updatedAt: true,
@@ -30,7 +32,7 @@ export class UsersService {
   ) {}
 
   // Admin'in rolüyle birlikte hesap oluşturması (temsilci/süpervizör)
-  async createUser(dto: CreateUserDto, actorId: string): Promise<SafeUser> {
+  async createUser(dto: CreateUserDto, actorId: string, actorEmail?: string, ip?: string): Promise<SafeUser> {
     const existing = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
@@ -47,15 +49,19 @@ export class UsersService {
         firstName: dto.firstName,
         lastName: dto.lastName,
         role: dto.role,
+        specialties: dto.specialties ?? [],
       },
       select: USER_SELECT,
     });
 
     this.audit.log({
       actorId,
+      actorEmail,
       action: 'USER_CREATED',
       targetId: user.id,
-      detail: { email: user.email, role: user.role },
+      ipAddress: ip,
+      success: true,
+      detail: { email: user.email, role: user.role, specialties: user.specialties },
     });
 
     return user;
@@ -95,7 +101,7 @@ export class UsersService {
   }
 
   // Rol değiştir (Admin only)
-  async updateRole(id: string, role: Role, actorId?: string): Promise<SafeUser> {
+  async updateRole(id: string, role: Role, actorId?: string, actorEmail?: string, ip?: string): Promise<SafeUser> {
     const before = await this.findById(id); // existence check
 
     const updated = await this.prisma.user.update({
@@ -106,8 +112,11 @@ export class UsersService {
 
     this.audit.log({
       actorId,
+      actorEmail,
       action: 'ROLE_UPDATED',
       targetId: id,
+      ipAddress: ip,
+      success: true,
       detail: { email: updated.email, from: before.role, to: role },
     });
 

@@ -9,6 +9,7 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Ip,
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { UsersService } from './users.service';
@@ -53,9 +54,11 @@ export class UsersController {
   @HttpCode(HttpStatus.CREATED)
   createUser(
     @GetUser('id') actorId: string,
+    @GetUser('email') actorEmail: string | null,
+    @Ip() ip: string,
     @Body() dto: CreateUserDto,
   ) {
-    return this.usersService.createUser(dto, actorId);
+    return this.usersService.createUser(dto, actorId, actorEmail ?? undefined, ip);
   }
 
   // PATCH /api/v1/auth/users/:id/role  (Admin only)
@@ -64,10 +67,12 @@ export class UsersController {
   @HttpCode(HttpStatus.OK)
   updateRole(
     @GetUser('id') actorId: string,
+    @GetUser('email') actorEmail: string | null,
+    @Ip() ip: string,
     @Param('id') id: string,
     @Body() dto: UpdateRoleDto,
   ) {
-    return this.usersService.updateRole(id, dto.role, actorId);
+    return this.usersService.updateRole(id, dto.role, actorId, actorEmail ?? undefined, ip);
   }
 
   // GET /api/v1/auth/audit-logs  (Admin only)
