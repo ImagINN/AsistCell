@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import api from '../services/api';
-import { Trophy, Medal, Award } from 'lucide-react';
+import { Trophy } from 'lucide-react';
 
 interface LeaderboardEntry {
   agentId: string;
