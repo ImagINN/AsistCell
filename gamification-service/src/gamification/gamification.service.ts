@@ -29,7 +29,7 @@ export class GamificationService {
         include: { badges: true },
       });
       // Redis leaderboard'a sıfır puanla ekle
-      await this.redisService.updateLeaderboard(agentId, 0);
+      await this.redisService.updateLeaderboard(agentId, 0, 0);
     }
 
     const rank = await this.redisService.getAgentRank(agentId);
@@ -71,7 +71,7 @@ export class GamificationService {
     });
 
     // 3. Redis Leaderboard'u güncelle
-    await this.redisService.updateLeaderboard(agentId, newPoints);
+    await this.redisService.updateLeaderboard(agentId, newPoints, points);
 
     // 4. Otomatik Rozet Kontrolü (Kurallar)
     await this.checkAndAwardBadges(agentId, updatedProfile);
@@ -107,8 +107,28 @@ export class GamificationService {
     }
   }
 
-  async getLeaderboard(top: number = 10) {
-    return this.redisService.getLeaderboard(top);
+  async getLeaderboard(period: string = 'all_time', top: number = 10) {
+    const rawLeaderboard = await this.redisService.getLeaderboard(period, top);
+    
+    if (rawLeaderboard.length === 0) return [];
+
+    const agentIds = rawLeaderboard.map(item => item.agentId);
+
+    const profiles = await this.prisma.agentProfile.findMany({
+      where: { id: { in: agentIds } },
+      include: { badges: true },
+    });
+
+    // Puan sırasını bozmadan rozetleri ve seviyeyi birleştir
+    return rawLeaderboard.map(item => {
+      const profile = profiles.find(p => p.id === item.agentId);
+      return {
+        agentId: item.agentId,
+        score: item.score,
+        level: profile?.currentLevel || Level.BRONZE,
+        badges: profile?.badges.map(b => b.badgeType) || [],
+      };
+    });
   }
 
   async getHistory(agentId: string) {

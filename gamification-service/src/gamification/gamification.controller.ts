@@ -7,8 +7,11 @@ export class GamificationController {
   constructor(private readonly gamificationService: GamificationService) {}
 
   @Get('leaderboard')
-  getLeaderboard(@Query('top') top: string) {
-    return this.gamificationService.getLeaderboard(top ? parseInt(top, 10) : 10);
+  getLeaderboard(
+    @Query('period') period: string, 
+    @Query('top') top: string
+  ) {
+    return this.gamificationService.getLeaderboard(period || 'all_time', top ? parseInt(top, 10) : 10);
   }
 
   @Get('agents/:agentId')
