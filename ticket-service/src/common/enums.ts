@@ -19,3 +19,21 @@ export enum MessageRole {
   TEMSILCI = 'TEMSILCI',
   SISTEM = 'SISTEM',
 }
+
+// Identity Service'in JWT payload'ındaki rol değerleri
+export enum UserRole {
+  USER = 'USER',
+  TEMSILCI = 'TEMSILCI',
+  SUPERVIZOR = 'SUPERVIZOR',
+  ADMIN = 'ADMIN',
+}
+
+export const STAFF_ROLES: string[] = [
+  UserRole.TEMSILCI,
+  UserRole.SUPERVIZOR,
+  UserRole.ADMIN,
+];
+
+export function isStaff(role?: string): boolean {
+  return !!role && STAFF_ROLES.includes(role);
+}
