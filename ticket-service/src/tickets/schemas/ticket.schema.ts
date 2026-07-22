@@ -60,11 +60,14 @@ TicketSchema.pre('save', function (next) {
   const doc = this as any;
   
   if (doc.isNew) {
-    // Statik Ticket Number. Gerçekte Counter collection kullanılmalı.
-    // Şimdilik zaman damgası + rastgele sayı ile benzersizlik sağlıyoruz.
-    const year = new Date().getFullYear();
-    const random = Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
-    doc.ticketNumber = `TCK-${year}-${random}`;
+    // Ticket number normalde TicketsService.nextTicketNumber() ile (counter
+    // collection, sıralı ve çakışmasız) atanır. Bu blok yalnızca servis
+    // dışından yapılan kayıtlar için fallback'tir.
+    if (!doc.ticketNumber) {
+      const year = new Date().getFullYear();
+      const random = Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
+      doc.ticketNumber = `TCK-${year}-${random}`;
+    }
 
     // SLA Hesaplama
     let hours = 24; // Default ORTA
