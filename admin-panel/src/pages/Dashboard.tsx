@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { LogOut, Ticket, Trophy, User } from 'lucide-react';
+import { LogOut, Plus, Ticket, Trophy, User } from 'lucide-react';
 import TicketsList from '../components/TicketsList';
 import Leaderboard from '../components/Leaderboard';
+import UserManagement from '../components/UserManagement';
 import api from '../services/api';
 
 const Dashboard: React.FC = () => {
@@ -26,6 +28,13 @@ const Dashboard: React.FC = () => {
               <span className="text-white text-xl font-bold">AsistCell Admin</span>
             </div>
             <div className="flex items-center space-x-4">
+              <Link
+                to="/tickets/new"
+                className="inline-flex items-center bg-brand-secondary text-brand-primary text-sm font-medium px-3 py-1.5 rounded-lg shadow-sm hover:bg-yellow-400 transition-colors"
+              >
+                <Plus className="w-4 h-4 mr-1" />
+                Yeni Talep
+              </Link>
               <span className="text-gray-200 text-sm">
                 Merhaba, {user?.firstName} ({user?.role})
               </span>
@@ -87,6 +96,13 @@ const Dashboard: React.FC = () => {
             <Leaderboard />
           </div>
         </div>
+
+        {/* Kullanıcı yönetimi — sadece Admin */}
+        {user?.role === 'ADMIN' && (
+          <div className="mt-8 animate-slide-up">
+            <UserManagement />
+          </div>
+        )}
       </main>
     </div>
   );
