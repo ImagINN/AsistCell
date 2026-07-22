@@ -1,4 +1,5 @@
-import { IsString, MinLength, MaxLength } from 'class-validator';
+import { IsEnum, IsString, MinLength, MaxLength } from 'class-validator';
+import { TicketChannel } from '../../common/enums';
 
 export class CreateTicketDto {
   @IsString()
@@ -9,4 +10,7 @@ export class CreateTicketDto {
   @IsString()
   @MinLength(20)
   description: string;
+
+  @IsEnum(TicketChannel)
+  channel: TicketChannel;
 }

@@ -145,6 +145,8 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://${IDENTITY_POSTGRES_USER}:${IDENTITY_POSTGRES_PASSWORD}@identity-postgres:5432/${IDENTITY_POSTGRES_DB}?schema=public
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      # Servisler arası audit endpoint'i için paylaşılan anahtar
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-asistcell-internal-dev-key}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
       # İlk kurulumda otomatik ADMIN hesabı (yoksa oluşturulur, varsa ADMIN'e yükseltilir)
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
@@ -177,6 +179,9 @@ services:
       MONGO_URI: mongodb://${TICKET_MONGO_INITDB_ROOT_USERNAME}:${TICKET_MONGO_INITDB_ROOT_PASSWORD}@ticket-mongo:27017/${TICKET_MONGO_INITDB_DATABASE}?authSource=admin
       RABBITMQ_URI: amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      # Yetkisiz erişim denemelerini identity-service'in merkezi audit log'una yazmak için
+      IDENTITY_SERVICE_URL: http://identity-service:3001
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-asistcell-internal-dev-key}
     depends_on:
       ticket-mongo:
         condition: service_healthy
