@@ -43,6 +43,9 @@ async function bootstrap() {
   const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule);
 
+  // Kong arkasında çalışıldığı için gerçek istemci IP'si X-Forwarded-For'dan gelir
+  app.getHttpAdapter().getInstance().set('trust proxy', true);
+
   // Global validation pipe
   app.useGlobalPipes(
     new ValidationPipe({

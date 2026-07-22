@@ -7,6 +7,8 @@ export interface AuditEntry {
   actorEmail?: string;
   action: string;
   targetId?: string;
+  ipAddress?: string;
+  success?: boolean;
   detail?: Prisma.InputJsonValue;
 }
 
