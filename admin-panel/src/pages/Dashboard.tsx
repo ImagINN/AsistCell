@@ -4,7 +4,6 @@ import { Ticket, Trophy, User } from 'lucide-react';
 import Navbar from '../components/Navbar';
 import TicketsList from '../components/TicketsList';
 import Leaderboard from '../components/Leaderboard';
-import UserManagement from '../components/UserManagement';
 import api from '../services/api';
 
 const Dashboard: React.FC = () => {
@@ -71,13 +70,6 @@ const Dashboard: React.FC = () => {
             </div>
           )}
         </div>
-
-        {/* Kullanıcı yönetimi — sadece Admin */}
-        {user?.role === 'ADMIN' && (
-          <div className="mt-8 animate-slide-up">
-            <UserManagement />
-          </div>
-        )}
       </main>
     </div>
   );

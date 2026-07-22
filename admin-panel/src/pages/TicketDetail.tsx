@@ -12,9 +12,11 @@ import {
   CATEGORY_LABELS, PRIORITY_LABELS, STATUS_LABELS,
   SENTIMENT_LABELS, SENTIMENT_COLORS,
 } from '../constants/tickets';
+import { fetchUsersByIds, fetchUsersByRole, fullName, type DirectoryUser } from '../services/directory';
 
 const CATEGORY_OPTIONS = ['FATURA', 'SEBEKE', 'CIHAZ', 'TARIFE', 'IPTAL'];
 const PRIORITY_OPTIONS = ['DUSUK', 'ORTA', 'YUKSEK', 'KRITIK'];
+const MESSAGE_ROLE_LABELS: Record<string, string> = { MUSTERI: 'Müşteri', TEMSILCI: 'Temsilci', SISTEM: 'Sistem' };
 
 interface Message {
   senderId: string;
@@ -93,6 +95,8 @@ const TicketDetail: React.FC = () => {
   const [assignAgentId, setAssignAgentId] = useState('');
   const [ratingValue, setRatingValue] = useState(0);
   const [ratingComment, setRatingComment] = useState('');
+  const [directory, setDirectory] = useState<Map<string, DirectoryUser>>(new Map());
+  const [agents, setAgents] = useState<DirectoryUser[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const isOwner = ticket && user?.role === 'USER' && ticket.customerId === user.id;
@@ -133,6 +137,20 @@ const TicketDetail: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticketNumber]);
 
+  // İlgili kişilerin isim+rol bilgisini çöz (ID yerine gösterim için)
+  useEffect(() => {
+    if (!ticket) return;
+    const ids = [ticket.customerId, ticket.assignedAgentId, ...ticket.messages.map((m) => m.senderId)];
+    fetchUsersByIds(ids).then(setDirectory);
+  }, [ticket]);
+
+  // Süpervizör manuel atama listesi: temsilci dizini
+  useEffect(() => {
+    if (user?.role === 'SUPERVIZOR') {
+      fetchUsersByRole('TEMSILCI').then(setAgents).catch(() => {});
+    }
+  }, [user?.role]);
+
   useEffect(() => {
     if (!ticketNumber) return;
     const token = localStorage.getItem('access_token') || '';
@@ -148,6 +166,8 @@ const TicketDetail: React.FC = () => {
         setTicket(updated);
         setCategoryDraft(updated.category);
         setPriorityDraft(updated.priority);
+        // AI analizi asenkron gelir (~4sn) — güncelleme geldiğinde analiz kartını tazele
+        loadAi();
       }
     };
     socket.on('ticket_updated', onUpdate);
@@ -297,6 +317,17 @@ const TicketDetail: React.FC = () => {
               <p className="mt-1 text-xs text-gray-400">
                 Oluşturulma: {new Date(ticket.createdAt).toLocaleString('tr-TR')}
               </p>
+              {!isOwner && (
+                <p className="mt-1 text-xs text-gray-500">
+                  Müşteri: <span className="font-medium text-gray-700">{fullName(directory.get(ticket.customerId)) ?? '—'}</span>
+                </p>
+              )}
+              <p className="mt-0.5 text-xs text-gray-500">
+                Atanan Temsilci:{' '}
+                <span className="font-medium text-gray-700">
+                  {ticket.assignedAgentId ? (fullName(directory.get(ticket.assignedAgentId)) ?? '—') : 'Henüz atanmadı'}
+                </span>
+              </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <span className={`px-3 py-1 rounded-full text-xs font-medium border ${badgeClass('status', ticket.status)}`}>
@@ -331,7 +362,8 @@ const TicketDetail: React.FC = () => {
                       }`}>
                         <p className="whitespace-pre-wrap">{m.content}</p>
                         <p className={`mt-1 text-[10px] ${mine ? 'text-blue-100' : 'text-gray-400'}`}>
-                          {m.senderRole === 'MUSTERI' ? 'Müşteri' : m.senderRole === 'TEMSILCI' ? 'Temsilci' : 'Sistem'} ·{' '}
+                          {fullName(directory.get(m.senderId)) ?? MESSAGE_ROLE_LABELS[m.senderRole] ?? m.senderRole}
+                          {' '}({MESSAGE_ROLE_LABELS[m.senderRole] ?? m.senderRole}) ·{' '}
                           {new Date(m.createdAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
                         </p>
                       </div>
@@ -492,16 +524,17 @@ const TicketDetail: React.FC = () => {
                   </div>
                 </div>
                 <form onSubmit={submitAssign}>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Manuel Atama (Temsilci ID)</label>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Manuel Atama (Temsilci)</label>
                   <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={assignAgentId}
-                      onChange={(e) => setAssignAgentId(e.target.value)}
-                      placeholder={ticket.assignedAgentId || 'Temsilci kullanıcı ID'}
-                      className={inputClass}
-                    />
-                    <button type="submit" className="btn-primary text-sm shrink-0">
+                    <select value={assignAgentId} onChange={(e) => setAssignAgentId(e.target.value)} className={inputClass}>
+                      <option value="">Temsilci seçin...</option>
+                      {agents.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {fullName(a)}{a.specialties?.length ? ` — ${a.specialties.map((s) => CATEGORY_LABELS[s] ?? s).join(', ')}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <button type="submit" disabled={!assignAgentId} className="btn-primary text-sm shrink-0 disabled:opacity-50">
                       <UserCheck className="w-4 h-4" />
                     </button>
                   </div>
