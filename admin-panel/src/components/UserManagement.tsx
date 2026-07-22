@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Users, UserPlus } from 'lucide-react';
 import api from '../services/api';
+import { ROLE_LABELS } from '../constants/roles';
 
 const SPECIALTIES = [
   { value: 'FATURA', label: 'Fatura' },
@@ -9,13 +10,6 @@ const SPECIALTIES = [
   { value: 'TARIFE', label: 'Tarife' },
   { value: 'IPTAL', label: 'İptal' },
 ];
-
-const ROLE_LABELS: Record<string, string> = {
-  USER: 'Müşteri',
-  TEMSILCI: 'Temsilci',
-  SUPERVIZOR: 'Süpervizör',
-  ADMIN: 'Admin',
-};
 
 interface UserRow {
   id: string;

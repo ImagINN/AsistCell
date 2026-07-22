@@ -75,9 +75,15 @@ const TicketsList: React.FC = () => {
       socket.on('new_ticket_arrived', (ticket: Ticket) => {
         setTickets((prev) => [ticket, ...prev]);
       });
-      // Genel yayından gelen durum/atama güncellemeleri (AI ataması dahil)
+      // Genel yayından gelen durum/atama güncellemeleri (AI ataması dahil).
+      // Talep tamamlandıysa (KAPANDI/IPTAL) aktif listeden anlık kaldırılır —
+      // tamamlanan talepler log ekranına düşer (/log/completed-tickets).
       socket.on('ticket_updated', (ticket: Ticket) => {
-        setTickets((prev) => prev.map((t) => (t.ticketNumber === ticket.ticketNumber ? ticket : t)));
+        setTickets((prev) =>
+          ['KAPANDI', 'IPTAL'].includes(ticket.status)
+            ? prev.filter((t) => t.ticketNumber !== ticket.ticketNumber)
+            : prev.map((t) => (t.ticketNumber === ticket.ticketNumber ? ticket : t)),
+        );
       });
     } else {
       // Müşteri: kendi talebine özel bildirimler
