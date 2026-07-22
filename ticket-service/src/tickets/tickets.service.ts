@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Inject } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, Inject } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { ClientProxy } from '@nestjs/microservices';
@@ -6,7 +6,7 @@ import { Ticket, Message } from './schemas/ticket.schema';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { UpdateTicketStatusDto } from './dto/update-ticket-status.dto';
 import { AddMessageDto } from './dto/add-message.dto';
-import { TicketStatus, MessageRole, TicketPriority } from '../common/enums';
+import { TicketStatus, MessageRole, TicketPriority, isStaff } from '../common/enums';
 import { StateMachineException } from '../common/exceptions/state-machine.exception';
 import { TicketsGateway } from './tickets.gateway';
 
@@ -15,14 +15,27 @@ export class TicketsService {
   constructor(
     @InjectModel(Ticket.name) private ticketModel: Model<Ticket>,
     private ticketsGateway: TicketsGateway,
-    @Inject('AI_SERVICE') private client: ClientProxy,
+    @Inject('AI_SERVICE') private aiClient: ClientProxy,
+    @Inject('GAMIFICATION_SERVICE') private gamificationClient: ClientProxy,
   ) {}
 
   // ================= State Machine =================
+  // Personel (TEMSILCI/SUPERVIZOR/ADMIN) geçişleri ile müşteri geçişleri ayrılır.
   private isValidStatusTransition(current: TicketStatus, target: TicketStatus, role: string): boolean {
+    const staff = isStaff(role);
+
+    // Opsiyonel: Her durumdan IPTAL edilebilir (Müşteri kendi talebini, personel her talebi)
+    if (target === TicketStatus.IPTAL) return true;
+
+    // Geri kalan tüm geçişler personel yetkisi gerektirir
+    if (!staff) {
+      // Müşteri yalnızca MUSTERI_BEKLENIYOR -> ISLEMDE tetikleyebilir (yanıt verdiğinde)
+      return current === TicketStatus.MUSTERI_BEKLENIYOR && target === TicketStatus.ISLEMDE;
+    }
+
     // 1. YENI -> ATANDI (Sistem/Supervizor)
     if (current === TicketStatus.YENI && target === TicketStatus.ATANDI) return true;
-    
+
     // 2. ATANDI -> ISLEMDE (Temsilci)
     if (current === TicketStatus.ATANDI && target === TicketStatus.ISLEMDE) return true;
 
@@ -35,10 +48,20 @@ export class TicketsService {
     // 5. ISLEMDE -> COZULDU (Temsilci)
     if (current === TicketStatus.ISLEMDE && target === TicketStatus.COZULDU) return true;
 
-    // Opsiyonel: Her durumdan IPTAL edilebilir (Müşteri)
-    if (target === TicketStatus.IPTAL) return true;
-
     return false;
+  }
+
+  // ================= Ticket Number (sıralı, çakışmasız) =================
+  private async nextTicketNumber(): Promise<string> {
+    const year = new Date().getFullYear();
+    const counters = this.ticketModel.db.collection('ticket_counters');
+    const result = await counters.findOneAndUpdate(
+      { _id: `TCK-${year}` as any },
+      { $inc: { seq: 1 } },
+      { upsert: true, returnDocument: 'after' },
+    );
+    const seq: number = (result as any)?.seq ?? (result as any)?.value?.seq ?? 1;
+    return `TCK-${year}-${seq.toString().padStart(6, '0')}`;
   }
 
   // ================= CRUD =================
@@ -47,15 +70,16 @@ export class TicketsService {
       ...createDto,
       customerId,
       status: TicketStatus.YENI,
+      ticketNumber: await this.nextTicketNumber(),
     });
-    
+
     const savedTicket = await ticket.save();
 
     // WS Bildirimi
     this.ticketsGateway.notifyTicketCreated(customerId, savedTicket);
 
     // RabbitMQ üzerinden AI servisine asenkron analiz eventi gönder
-    this.client.emit('ticket.created', {
+    this.aiClient.emit('ticket.created', {
       ticketId: savedTicket.ticketNumber,
       title: savedTicket.title,
       description: savedTicket.description
@@ -80,30 +104,81 @@ export class TicketsService {
     return ticket;
   }
 
-  async updateStatus(ticketNumber: string, updateDto: UpdateTicketStatusDto, role: string): Promise<Ticket> {
+  async updateStatus(
+    ticketNumber: string,
+    updateDto: UpdateTicketStatusDto,
+    role: string,
+    userId: string,
+  ): Promise<Ticket> {
     const ticket = await this.findOne(ticketNumber);
+
+    // Müşteri yalnızca kendi talebini iptal edebilir / güncelleyebilir
+    if (!isStaff(role) && ticket.customerId !== userId) {
+      throw new ForbiddenException('You can only modify your own tickets');
+    }
 
     if (!this.isValidStatusTransition(ticket.status, updateDto.status, role)) {
       throw new StateMachineException(ticket.status, updateDto.status);
     }
 
+    const previousStatus = ticket.status;
     ticket.status = updateDto.status;
-    
+
     if (updateDto.status === TicketStatus.COZULDU && updateDto.resolutionNote) {
       ticket.resolutionNote = updateDto.resolutionNote;
     }
 
     const updated = await ticket.save();
-    
+
+    // Çözüm/iptal eventleri (gamification puanı + AI kapasite düşümü)
+    this.emitLifecycleEvents(updated, previousStatus);
+
     // WS Bildirimi
     this.ticketsGateway.notifyTicketStatusUpdated(ticket.customerId, updated);
-    
+
     return updated;
+  }
+
+  // COZULDU -> gamification'a puan eventi + AI'a kapasite bırakma eventi
+  // IPTAL   -> yalnızca AI'a kapasite bırakma eventi
+  private emitLifecycleEvents(ticket: Ticket, previousStatus: TicketStatus): void {
+    if (!ticket.assignedAgentId) return;
+
+    if (ticket.status === TicketStatus.COZULDU) {
+      const slaMet = ticket.slaDeadline ? new Date() <= ticket.slaDeadline : true;
+
+      this.gamificationClient.emit('ticket.resolved', {
+        ticketId: ticket.ticketNumber,
+        agentId: ticket.assignedAgentId,
+        slaMet,
+      });
+
+      this.aiClient.emit('ticket.released', {
+        ticketId: ticket.ticketNumber,
+        agentId: ticket.assignedAgentId,
+        resolved: true,
+      });
+    } else if (
+      ticket.status === TicketStatus.IPTAL &&
+      previousStatus !== TicketStatus.COZULDU &&
+      previousStatus !== TicketStatus.YENI
+    ) {
+      this.aiClient.emit('ticket.released', {
+        ticketId: ticket.ticketNumber,
+        agentId: ticket.assignedAgentId,
+        resolved: false,
+      });
+    }
   }
 
   async addMessage(ticketNumber: string, dto: AddMessageDto, senderId: string, senderRole: MessageRole): Promise<Ticket> {
     const ticket = await this.findOne(ticketNumber);
-    
+
+    // Müşteri yalnızca kendi talebine mesaj yazabilir
+    if (senderRole === MessageRole.MUSTERI && ticket.customerId !== senderId) {
+      throw new ForbiddenException('You can only message your own tickets');
+    }
+
     const newMessage = {
       senderId,
       senderRole,
@@ -131,17 +206,17 @@ export class TicketsService {
   // Sadece AI Service (veya RabbitMQ consumer) tarafından çağrılır
   async updateAiAnalysis(ticketNumber: string, analysisData: any): Promise<Ticket> {
     const ticket = await this.findOne(ticketNumber);
-    
+
     ticket.category = analysisData.category;
     ticket.priority = analysisData.priority;
-    
+
     if (analysisData.assignedAgentId) {
        ticket.assignedAgentId = analysisData.assignedAgentId;
        ticket.status = TicketStatus.ATANDI; // State transition
     }
 
     // Recalculate SLA based on new priority
-    let hours = 24; 
+    let hours = 24;
     switch (ticket.priority) {
       case TicketPriority.KRITIK: hours = 1; break;
       case TicketPriority.YUKSEK: hours = 4; break;
@@ -153,9 +228,9 @@ export class TicketsService {
     ticket.slaDeadline = deadline;
 
     const updated = await ticket.save();
-    
+
     this.ticketsGateway.notifyTicketStatusUpdated(ticket.customerId, updated);
-    
+
     return updated;
   }
 }
