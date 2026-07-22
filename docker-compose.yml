@@ -146,6 +146,9 @@ services:
       DATABASE_URL: postgresql://${IDENTITY_POSTGRES_USER}:${IDENTITY_POSTGRES_PASSWORD}@identity-postgres:5432/${IDENTITY_POSTGRES_DB}?schema=public
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      # İlk kurulumda otomatik ADMIN hesabı (yoksa oluşturulur, varsa ADMIN'e yükseltilir)
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
     depends_on:
       identity-postgres:
         condition: service_healthy
@@ -201,12 +204,15 @@ services:
       PORT: 3003
       DATABASE_URL: postgresql://${AI_POSTGRES_USER}:${AI_POSTGRES_PASSWORD}@ai-postgres:5432/${AI_POSTGRES_DB}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
-      GEMINI_MODEL: gemini-2.5-flash
+      # gemini-2.5-flash emekliye ayrıldı (404). "latest" alias'ı model
+      # emekliliklerinden etkilenmez; .env ile override edilebilir.
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-flash-latest}
     depends_on:
       ai-postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3003/api/v1/ai/health"]
+      # İmajda curl yok — Python stdlib ile kontrol ediyoruz
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:3003/api/v1/ai/health', timeout=3).status==200 else 1)"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -257,9 +263,20 @@ services:
     image: kong:3.9
     container_name: asistcell-kong
     restart: unless-stopped
+    # kong.yml bir şablondur: Kong declarative config env interpolasyonu
+    # yapmadığı için ${JWT_SECRET} yer tutucusu açılışta awk ile gerçek
+    # değere çevrilir, ardından orijinal entrypoint çalıştırılır.
+    command:
+      - sh
+      - -c
+      - >
+        awk '{ n=split($$0, p, /\$$\{JWT_SECRET\}/); line=p[1];
+        for(i=2;i<=n;i++) line=line ENVIRON["JWT_SECRET"] p[i]; print line }'
+        /kong-template/kong.yml > /tmp/kong.yml
+        && exec /docker-entrypoint.sh kong docker-start
     environment:
       KONG_DATABASE: "off"                                          # DB-less mod
-      KONG_DECLARATIVE_CONFIG: /usr/local/kong/declarative/kong.yml
+      KONG_DECLARATIVE_CONFIG: /tmp/kong.yml
       KONG_PROXY_ACCESS_LOG: /dev/stdout
       KONG_ADMIN_ACCESS_LOG: /dev/stdout
       KONG_PROXY_ERROR_LOG: /dev/stderr
@@ -275,7 +292,7 @@ services:
       - "8000:8000"   # Proxy — tüm istemci istekleri buraya gelir
       - "8001:8001"   # Admin API — config reload, durum sorgulama
     volumes:
-      - ./kong.yml:/usr/local/kong/declarative/kong.yml:ro   # read-only mount
+      - ./kong.yml:/kong-template/kong.yml:ro   # şablon (read-only mount)
     healthcheck:
       test: ["CMD", "kong", "health"]
       interval: 10s
