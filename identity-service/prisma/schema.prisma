@@ -17,17 +17,33 @@ enum Role {
   ADMIN
 }
 
+// Temsilci uzmanlık alanları
+enum Specialty {
+  FATURA
+  SEBEKE
+  CIHAZ
+  TARIFE
+  IPTAL
+}
+
 model User {
-  id            String         @id @default(uuid())
-  email         String         @unique
-  password      String
-  firstName     String
-  lastName      String
-  role          Role           @default(USER)
-  isActive      Boolean        @default(true)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  refreshTokens RefreshToken[]
+  id                  String         @id @default(uuid())
+  // Müşteriler GSM ile kayıt olur; e-posta onlar için opsiyoneldir.
+  // Personel (TEMSILCI/SUPERVIZOR/ADMIN) e-posta ile giriş yapar.
+  email               String?        @unique
+  gsmNumber           String?        @unique
+  password            String
+  firstName           String
+  lastName            String
+  role                Role           @default(USER)
+  specialties         Specialty[]    @default([])
+  isActive            Boolean        @default(true)
+  // Hesap kilitleme: 5 başarısız denemede 15 dk kilit
+  failedLoginAttempts Int            @default(0)
+  lockedUntil         DateTime?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  refreshTokens       RefreshToken[]
 
   @@map("users")
 }
@@ -38,6 +54,8 @@ model AuditLog {
   actorEmail String?
   action     String
   targetId   String?
+  ipAddress  String?
+  success    Boolean  @default(true)
   detail     Json?
   createdAt  DateTime @default(now())
 
