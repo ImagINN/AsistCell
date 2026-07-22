@@ -158,6 +158,35 @@ services:
     # Port dışarıya açılmıyor — Kong iç ağ üzerinden erişir
 
   # ──────────────────────────────────────────────────────────────
+  # TICKET SERVICE — NestJS (Node.js) + MongoDB + WebSockets
+  # Port: 3002 (sadece Docker internal network)
+  # Kong /api/v1/tickets/** → bu servise yönlendirir
+  # ──────────────────────────────────────────────────────────────
+  ticket-service:
+    build:
+      context: ./ticket-service
+      dockerfile: Dockerfile
+    container_name: asistcell-ticket-service
+    restart: unless-stopped
+    environment:
+      PORT: 3002
+      NODE_ENV: production
+      MONGO_URI: mongodb://${TICKET_MONGO_INITDB_ROOT_USERNAME}:${TICKET_MONGO_INITDB_ROOT_PASSWORD}@ticket-mongo:27017/${TICKET_MONGO_INITDB_DATABASE}?authSource=admin
+      RABBITMQ_URI: amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+    depends_on:
+      ticket-mongo:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3002/api/v1/tickets"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ──────────────────────────────────────────────────────────────
   # AI SERVICE — FastAPI (Python)
   # Port: 3003 (sadece Docker internal network)
   # Kong /api/v1/ai/** → bu servise yönlendirir
