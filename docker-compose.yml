@@ -158,6 +158,32 @@ services:
     # Port dışarıya açılmıyor — Kong iç ağ üzerinden erişir
 
   # ──────────────────────────────────────────────────────────────
+  # AI SERVICE — FastAPI (Python)
+  # Port: 3003 (sadece Docker internal network)
+  # Kong /api/v1/ai/** → bu servise yönlendirir
+  # ──────────────────────────────────────────────────────────────
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: asistcell-ai-service
+    restart: unless-stopped
+    environment:
+      PORT: 3003
+      DATABASE_URL: postgresql://${AI_POSTGRES_USER}:${AI_POSTGRES_PASSWORD}@ai-postgres:5432/${AI_POSTGRES_DB}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: gemini-2.5-flash
+    depends_on:
+      ai-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3003/api/v1/ai/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ──────────────────────────────────────────────────────────────
   # API GATEWAY — Kong (DB-less)
   # Proxy:      http://localhost:8000
   # Admin API:  http://localhost:8001 (read-only in DB-less mode)
