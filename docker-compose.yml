@@ -130,9 +130,38 @@ services:
       retries: 5
 
   # ──────────────────────────────────────────────────────────────
+  # IDENTITY SERVICE — NestJS (TypeScript)
+  # Port: 3001 (sadece Docker internal network — host'a açık değil)
+  # Kong /api/v1/auth/** → bu servise yönlendirir
+  # ──────────────────────────────────────────────────────────────
+  identity-service:
+    build:
+      context: ./identity-service
+      dockerfile: Dockerfile
+    container_name: asistcell-identity-service
+    restart: unless-stopped
+    environment:
+      PORT: 3001
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${IDENTITY_POSTGRES_USER}:${IDENTITY_POSTGRES_PASSWORD}@identity-postgres:5432/${IDENTITY_POSTGRES_DB}?schema=public
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+    depends_on:
+      identity-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/api/v1/auth/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    # Port dışarıya açılmıyor — Kong iç ağ üzerinden erişir
+
+  # ──────────────────────────────────────────────────────────────
   # API GATEWAY — Kong (DB-less)
   # Proxy:      http://localhost:8000
   # Admin API:  http://localhost:8001 (read-only in DB-less mode)
+
   # Config:     ./kong.yml (declarative)
   # ──────────────────────────────────────────────────────────────
   kong:
