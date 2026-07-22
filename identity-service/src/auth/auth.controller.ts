@@ -20,6 +20,12 @@ import { User } from '@prisma/client';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  // GET /api/v1/auth/health — Docker healthcheck (kimliksiz)
+  @Get('health')
+  health() {
+    return { status: 'ok', service: 'identity-service' };
+  }
+
   // POST /api/v1/auth/register
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
