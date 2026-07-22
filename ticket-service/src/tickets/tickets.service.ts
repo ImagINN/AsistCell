@@ -66,6 +66,7 @@ export class TicketsService implements OnModuleInit, OnModuleDestroy {
       const updated = await ticket.save();
       this.logger.log(`Ticket ${ticket.ticketNumber} auto-closed after ${this.AUTO_CLOSE_HOURS}h`);
       this.ticketsGateway.notifyTicketStatusUpdated(ticket.customerId, updated);
+      this.ticketsGateway.notifyTicketCompleted(updated);
     }
   }
 
@@ -130,13 +131,45 @@ export class TicketsService implements OnModuleInit, OnModuleDestroy {
     return savedTicket;
   }
 
+  // Varsayılan olarak tamamlanmış talepler (KAPANDI/IPTAL) aktif ekranlarda
+  // gösterilmez — bunlar için ayrıca getCompletedTickets() kullanılır.
+  // Açıkça bir status filtresi verilirse (örn. ?status=KAPANDI) bu davranış geçersiz kılınır.
   async findAll(query: ListTicketsQueryDto = {}): Promise<Ticket[]> {
     const filter: Record<string, any> = {};
     if (query.assignedAgentId) filter.assignedAgentId = query.assignedAgentId;
-    if (query.status) filter.status = query.status;
     if (query.priority) filter.priority = query.priority;
     if (query.category) filter.category = query.category;
+    if (query.status) {
+      filter.status = query.status;
+    } else {
+      filter.status = { $nin: [TicketStatus.KAPANDI, TicketStatus.IPTAL] };
+    }
     return this.ticketModel.find(filter).sort({ createdAt: -1 }).exec();
+  }
+
+  // Tamamlanan talepler log ekranı (Süpervizör/Admin) — kapanış zamanına göre sıralı
+  async getCompletedTickets(take = 50, skip = 0) {
+    const filter = { status: { $in: [TicketStatus.KAPANDI, TicketStatus.IPTAL] } };
+    const [items, total] = await Promise.all([
+      this.ticketModel
+        .find(filter)
+        .sort({ closedAt: -1, updatedAt: -1 })
+        .skip(skip)
+        .limit(Math.min(take, 200))
+        .exec(),
+      this.ticketModel.countDocuments(filter).exec(),
+    ]);
+    return { items, total, take, skip };
+  }
+
+  // AI'ın otomatik atadığı taleplerin canlı/geçmiş akışı (Süpervizör/Admin)
+  async getAutoAssignments(take = 20) {
+    return this.ticketModel
+      .find({ assignmentSource: 'AI' })
+      .sort({ aiAssignedAt: -1, updatedAt: -1 })
+      .limit(Math.min(take, 100))
+      .select('ticketNumber title category priority aiConfidence assignedAgentId aiAssignedAt status')
+      .exec();
   }
 
   async findByCustomer(customerId: string): Promise<Ticket[]> {
@@ -227,6 +260,9 @@ export class TicketsService implements OnModuleInit, OnModuleDestroy {
 
     // WS Bildirimi
     this.ticketsGateway.notifyTicketStatusUpdated(ticket.customerId, updated);
+    if (updated.status === TicketStatus.KAPANDI || updated.status === TicketStatus.IPTAL) {
+      this.ticketsGateway.notifyTicketCompleted(updated);
+    }
 
     return updated;
   }
@@ -656,12 +692,19 @@ export class TicketsService implements OnModuleInit, OnModuleDestroy {
       ticket.priority = analysisData.priority;
     }
 
+    if (typeof analysisData.confidence === 'number') {
+      ticket.aiConfidence = analysisData.confidence;
+    }
+
     // AI yalnızca henüz atanmamış talepleri atayabilir; manuel atama (süpervizör)
     // her zaman önceliklidir ve geç gelen analizle geri alınmaz.
+    let autoAssigned = false;
     if (analysisData.assignedAgentId && !ticket.assignedAgentId) {
        ticket.assignedAgentId = analysisData.assignedAgentId;
        ticket.assignmentSource = 'AI';
+       ticket.aiAssignedAt = new Date();
        ticket.status = TicketStatus.ATANDI; // State transition
+       autoAssigned = true;
     }
 
     // Recalculate SLA based on new priority
@@ -670,6 +713,10 @@ export class TicketsService implements OnModuleInit, OnModuleDestroy {
     const updated = await ticket.save();
 
     this.ticketsGateway.notifyTicketStatusUpdated(ticket.customerId, updated);
+    // Süpervizör/admin panelindeki canlı otomatik atama akışı için ayrı event
+    if (autoAssigned) {
+      this.ticketsGateway.notifyAutoAssignment(updated);
+    }
 
     return updated;
   }
