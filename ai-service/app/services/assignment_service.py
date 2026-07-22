@@ -31,8 +31,10 @@ class AssignmentService:
         best_score = -1.0
         
         for agent in agents:
-            # 1. Uzmanlık Eşleşmesi
-            uzmanlik_eslesme = 1.0 if agent.expertise == category else 0.3
+            # 1. Uzmanlık Eşleşmesi — expertise virgülle ayrılmış birden fazla
+            # alan içerebilir (identity-service'teki specialties ile senkron)
+            expertise_list = [e.strip() for e in (agent.expertise or "").split(",") if e.strip()]
+            uzmanlik_eslesme = 1.0 if category in expertise_list else 0.3
             
             # 2. Boşluk Oranı
             bosluk_orani = (agent.max_capacity - agent.active_ticket_count) / max(1, agent.max_capacity)

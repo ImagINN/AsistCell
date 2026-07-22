@@ -105,6 +105,7 @@ class RabbitMQClient:
                     response_payload = {
                         "ticketId": result.ticket_id,
                         "category": result.category,
+                        "confidence": result.confidence,
                         "sentiment": result.sentiment,
                         "priority": result.priority,
                         "assignedAgentId": result.assigned_agent_id
