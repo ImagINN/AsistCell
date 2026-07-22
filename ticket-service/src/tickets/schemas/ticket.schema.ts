@@ -93,6 +93,14 @@ export class Ticket extends Document {
   // Süpervizör önceliği manuel belirlediyse AI analizi bunu ezmez
   @Prop({ type: Boolean, default: false })
   priorityManuallySet: boolean;
+
+  // Otomatik atama izleme: Gemini'nin güven skoru ve atamanın yapıldığı an
+  // (canlı süpervizör/admin akışında ve atama log'unda gösterilir)
+  @Prop({ type: Number })
+  aiConfidence?: number;
+
+  @Prop({ type: Date })
+  aiAssignedAt?: Date;
 }
 export const TicketSchema = SchemaFactory.createForClass(Ticket);
 
