@@ -12,6 +12,8 @@ datasource db {
 
 enum Role {
   USER
+  TEMSILCI
+  SUPERVIZOR
   ADMIN
 }
 
