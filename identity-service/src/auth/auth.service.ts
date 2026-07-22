@@ -8,6 +8,7 @@ import { JwtService } from '@nestjs/jwt';
 import { User } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
@@ -31,6 +32,7 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private audit: AuditService,
   ) {}
 
   // ── Register ────────────────────────────────────────────────
@@ -56,6 +58,12 @@ export class AuthService {
 
     const tokens = await this.generateAndStoreTokens(user);
     this.logger.log(`New user registered: ${user.email}`);
+    this.audit.log({
+      actorId: user.id,
+      actorEmail: user.email,
+      action: 'USER_REGISTERED',
+      targetId: user.id,
+    });
 
     return { user: this.sanitizeUser(user), tokens };
   }
@@ -78,6 +86,12 @@ export class AuthService {
 
     const tokens = await this.generateAndStoreTokens(user);
     this.logger.log(`User logged in: ${user.email}`);
+    this.audit.log({
+      actorId: user.id,
+      actorEmail: user.email,
+      action: 'USER_LOGIN',
+      targetId: user.id,
+    });
 
     return { user: this.sanitizeUser(user), tokens };
   }
