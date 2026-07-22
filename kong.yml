@@ -1,0 +1,219 @@
+# ============================================================
+# AsistCell — Kong DB-less Declarative Configuration
+# Kong 3.x | Format: 3.0
+#
+# DB-less modda çalışır — hiçbir veritabanına ihtiyaç yoktur.
+# Tüm değişiklikler bu dosyada yapılır ve container restart
+# ile veya Admin API reload ile uygulanır.
+# ============================================================
+
+_format_version: "3.0"
+_transform: true
+
+# ──────────────────────────────────────────────────────────────
+# CONSUMERS (DB-less JWT için zorunlu)
+# JWT plugin, token'ı doğrulamak için consumer + secret'a
+# ihtiyaç duyar. Identity Service bu consumer adına token üretir.
+#
+# ⚠️  Production'da:
+#   - key: identity-service'in kullandığı JWT "iss" claim değeri
+#   - secret: identity-service'in imzalama secret'ı ile eşleşmeli
+#   - RS256 için secret yerine rsa_public_key kullanın
+# ──────────────────────────────────────────────────────────────
+consumers:
+  - username: asistcell-identity-issuer
+    jwt_secrets:
+      - key: "asistcell-identity-service"       # JWT payload'daki "iss" değeri
+        algorithm: HS256
+        secret: "${JWT_SECRET}"                 # .env dosyasından gelir
+
+# ──────────────────────────────────────────────────────────────
+# SERVICES & ROUTES
+# ──────────────────────────────────────────────────────────────
+services:
+
+  # ── 1. Identity Service (Auth) ───────────────────────────────
+  # JWT doğrulamasından MUAF — kullanıcı buradan token alır.
+  # Rate limiting burada daha SIKI: brute-force koruması için.
+  - name: identity-service
+    url: http://identity-service:3001
+    connect_timeout: 10000
+    write_timeout: 10000
+    read_timeout: 30000
+    routes:
+      - name: auth-route
+        paths:
+          - /api/v1/auth
+        methods:
+          - GET
+          - POST
+          - PUT
+          - PATCH
+          - DELETE
+          - OPTIONS
+        strip_path: false
+        preserve_host: false
+    plugins:
+      # Auth rotasına özel, daha sıkı rate limit (brute-force koruması)
+      - name: rate-limiting
+        config:
+          minute: 20            # Dakikada max 20 istek (login/register için yeterli)
+          hour: 500
+          policy: local
+          limit_by: ip
+          fault_tolerant: true
+          hide_client_headers: false
+          error_code: 429
+          error_message: "Too many authentication attempts. Please try again later."
+
+  # ── 2. Ticket Service ────────────────────────────────────────
+  # JWT doğrulaması AKTİF
+  - name: ticket-service
+    url: http://ticket-service:3002
+    connect_timeout: 10000
+    write_timeout: 10000
+    read_timeout: 30000
+    routes:
+      - name: tickets-route
+        paths:
+          - /api/v1/tickets
+        methods:
+          - GET
+          - POST
+          - PUT
+          - PATCH
+          - DELETE
+          - OPTIONS
+        strip_path: false
+        preserve_host: false
+    plugins:
+      - name: jwt
+        config:
+          secret_is_base64: false
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
+          anonymous: ~           # Anonim erişime izin yok
+
+  # ── 3. AI Service ────────────────────────────────────────────
+  # JWT doğrulaması AKTİF
+  - name: ai-service
+    url: http://ai-service:3003
+    connect_timeout: 10000
+    write_timeout: 10000
+    read_timeout: 60000          # AI yanıtları daha uzun sürebilir
+    routes:
+      - name: ai-route
+        paths:
+          - /api/v1/ai
+        methods:
+          - GET
+          - POST
+          - PUT
+          - PATCH
+          - DELETE
+          - OPTIONS
+        strip_path: false
+        preserve_host: false
+    plugins:
+      - name: jwt
+        config:
+          secret_is_base64: false
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
+          anonymous: ~
+
+  # ── 4. Gamification Service ──────────────────────────────────
+  # JWT doğrulaması AKTİF
+  - name: gamification-service
+    url: http://gamification-service:3004
+    connect_timeout: 10000
+    write_timeout: 10000
+    read_timeout: 30000
+    routes:
+      - name: game-route
+        paths:
+          - /api/v1/game
+        methods:
+          - GET
+          - POST
+          - PUT
+          - PATCH
+          - DELETE
+          - OPTIONS
+        strip_path: false
+        preserve_host: false
+    plugins:
+      - name: jwt
+        config:
+          secret_is_base64: false
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
+          anonymous: ~
+
+# ──────────────────────────────────────────────────────────────
+# GLOBAL PLUGINS
+# Tüm rotalara uygulanır (servis-level plugin'ler override edebilir)
+# ──────────────────────────────────────────────────────────────
+plugins:
+
+  # ── Global Rate Limiting ─────────────────────────────────────
+  # Tüm rotalar için genel sınır.
+  # Auth rotası kendi plugin'i ile daha sıkı sınırlanır (override).
+  - name: rate-limiting
+    config:
+      minute: 100           # Dakikada max 100 istek (genel)
+      hour: 3000
+      policy: local
+      limit_by: ip
+      fault_tolerant: true
+      hide_client_headers: false
+      error_code: 429
+      error_message: "Rate limit exceeded. Please slow down."
+
+  # ── CORS Plugin ──────────────────────────────────────────────
+  # iOS SwiftUI uygulaması için (native app CORS gerektirmez,
+  # ancak Swagger UI, web dashboard ve geliştirme araçları için
+  # gereklidir). Production'da origins'i kısıtlayın.
+  - name: cors
+    config:
+      origins:
+        - "*"                           # ⚠️  Production'da domain ile kısıtla
+      methods:
+        - GET
+        - POST
+        - PUT
+        - PATCH
+        - DELETE
+        - OPTIONS
+        - HEAD
+      headers:
+        - Accept
+        - Accept-Version
+        - Authorization
+        - Content-Length
+        - Content-MD5
+        - Content-Type
+        - Date
+        - X-Auth-Token
+        - X-Request-ID
+      exposed_headers:
+        - X-Auth-Token
+        - X-Kong-Upstream-Latency
+        - X-Kong-Proxy-Latency
+        - X-RateLimit-Limit-Minute
+        - X-RateLimit-Remaining-Minute
+      credentials: true
+      max_age: 3600
+      preflight_continue: false
+
+  # ── Request ID (Distributed Tracing için) ───────────────────
+  # Her isteğe benzersiz bir X-Request-ID header'ı ekler.
+  # Servisler arası log korelasyonu için kullanışlı.
+  - name: correlation-id
+    config:
+      header_name: X-Request-ID
+      generator: uuid#counter
+      echo_downstream: true

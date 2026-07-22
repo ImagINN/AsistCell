@@ -129,6 +129,40 @@ services:
       timeout: 5s
       retries: 5
 
+  # ──────────────────────────────────────────────────────────────
+  # API GATEWAY — Kong (DB-less)
+  # Proxy:      http://localhost:8000
+  # Admin API:  http://localhost:8001 (read-only in DB-less mode)
+  # Config:     ./kong.yml (declarative)
+  # ──────────────────────────────────────────────────────────────
+  kong:
+    image: kong:3.9
+    container_name: asistcell-kong
+    restart: unless-stopped
+    environment:
+      KONG_DATABASE: "off"                                          # DB-less mod
+      KONG_DECLARATIVE_CONFIG: /usr/local/kong/declarative/kong.yml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: "0.0.0.0:8001"                            # Admin API
+      KONG_PROXY_LISTEN: "0.0.0.0:8000"                            # Proxy
+      KONG_LOG_LEVEL: notice
+      # .env dosyasındaki JWT_SECRET, kong.yml'deki ${JWT_SECRET} yerine geçer
+      JWT_SECRET: ${JWT_SECRET}
+    ports:
+      - "8000:8000"   # Proxy — tüm istemci istekleri buraya gelir
+      - "8001:8001"   # Admin API — config reload, durum sorgulama
+    volumes:
+      - ./kong.yml:/usr/local/kong/declarative/kong.yml:ro   # read-only mount
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
 # ──────────────────────────────────────────────────────────────
 # NAMED VOLUMES
 # ──────────────────────────────────────────────────────────────
