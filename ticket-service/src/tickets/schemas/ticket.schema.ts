@@ -1,6 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, SchemaTypes } from 'mongoose';
-import { TicketStatus, TicketPriority, MessageRole } from '../../common/enums';
+import { TicketStatus, TicketPriority, MessageRole, TicketChannel } from '../../common/enums';
 
 @Schema({ timestamps: true })
 export class Message {
@@ -37,6 +37,9 @@ export class Ticket extends Document {
 
   @Prop({ type: String, default: 'BELIRSIZ' })
   category: string;
+
+  @Prop({ type: String, enum: TicketChannel, required: true })
+  channel: TicketChannel;
 
   @Prop({ type: String, required: true, index: true })
   customerId: string;
@@ -75,6 +78,13 @@ export class Ticket extends Document {
 
   @Prop({ type: Boolean, default: false })
   reassignedAfterAi: boolean;
+
+  // AI'ın önerdiği kategori (personel override'ı doğruluk metriğine yansısın diye saklanır)
+  @Prop({ type: String })
+  aiCategory?: string;
+
+  @Prop({ type: Boolean, default: false })
+  categoryOverriddenAfterAi: boolean;
 }
 export const TicketSchema = SchemaFactory.createForClass(Ticket);
 
