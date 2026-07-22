@@ -1,0 +1,68 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Level {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+}
+
+enum BadgeType {
+  ILK_ADIM
+  HIZ_USTASI
+  MUSTERI_DOSTU
+  MARATONCU
+  KRIZ_YONETICISI
+  UZMAN
+}
+
+model AgentProfile {
+  id                   String        @id @default(uuid())
+  totalPoints          Int           @default(0)
+  currentLevel         Level         @default(BRONZE)
+  totalResolvedTickets Int           @default(0)
+  averageRating        Float         @default(0.0)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  badges               AgentBadge[]
+  pointHistory         PointHistory[]
+
+  @@map("agent_profiles")
+}
+
+model AgentBadge {
+  id         String       @id @default(uuid())
+  agentId    String
+  badgeType  BadgeType
+  earnedAt   DateTime     @default(now())
+  
+  agent      AgentProfile @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, badgeType]) // Bir temsilci aynı rozeti birden fazla alamasın
+  @@map("agent_badges")
+}
+
+model PointHistory {
+  id            String       @id @default(uuid())
+  agentId       String
+  ticketId      String?
+  pointsChanged Int
+  reason        String
+  createdAt     DateTime     @default(now())
+
+  agent         AgentProfile @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@map("point_histories")
+}
