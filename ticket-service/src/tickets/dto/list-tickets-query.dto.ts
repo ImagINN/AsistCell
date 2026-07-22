@@ -13,4 +13,8 @@ export class ListTicketsQueryDto {
   @IsOptional()
   @IsEnum(TicketPriority)
   priority?: TicketPriority;
+
+  @IsOptional()
+  @IsString()
+  category?: string;
 }

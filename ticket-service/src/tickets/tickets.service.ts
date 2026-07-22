@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ForbiddenException,
   UnprocessableEntityException,
+  ConflictException,
   Inject,
   Logger,
   OnModuleDestroy,
@@ -134,6 +135,7 @@ export class TicketsService implements OnModuleInit, OnModuleDestroy {
     if (query.assignedAgentId) filter.assignedAgentId = query.assignedAgentId;
     if (query.status) filter.status = query.status;
     if (query.priority) filter.priority = query.priority;
+    if (query.category) filter.category = query.category;
     return this.ticketModel.find(filter).sort({ createdAt: -1 }).exec();
   }
 
@@ -269,29 +271,46 @@ export class TicketsService implements OnModuleInit, OnModuleDestroy {
     if (ticket.customerId !== userId) {
       throw new ForbiddenException('You can only rate your own tickets');
     }
-    if (ticket.status !== TicketStatus.COZULDU && ticket.status !== TicketStatus.KAPANDI) {
-      throw new ForbiddenException('Only resolved tickets can be rated');
+    // Spec: puanlama yalnızca talep KAPANDI durumuna geçtikten sonra yapılabilir
+    if (ticket.status !== TicketStatus.KAPANDI) {
+      throw new ForbiddenException(
+        'Yalnızca kapatılmış (KAPANDI) talepler puanlanabilir',
+      );
     }
     if (ticket.rating) {
-      throw new ForbiddenException('This ticket has already been rated');
+      throw new ConflictException('Bu talep zaten puanlanmış; puan değiştirilemez');
     }
 
-    ticket.rating = dto.rating;
-    if (dto.comment) ticket.ratingComment = dto.comment;
-    ticket.ratedAt = new Date();
+    // Tek seferlik garanti: koşullu atomik güncelleme — eşzamanlı iki istek
+    // gelirse yalnızca biri kaydı yazabilir, diğeri 409 alır.
+    const updated = await this.ticketModel
+      .findOneAndUpdate(
+        { ticketNumber, rating: { $exists: false } },
+        {
+          $set: {
+            rating: dto.rating,
+            ...(dto.comment ? { ratingComment: dto.comment } : {}),
+            ratedAt: new Date(),
+          },
+        },
+        { new: true },
+      )
+      .exec();
 
-    const updated = await ticket.save();
+    if (!updated) {
+      throw new ConflictException('Bu talep zaten puanlanmış; puan değiştirilemez');
+    }
 
     // Gamification'a müşteri memnuniyet eventi
-    if (ticket.assignedAgentId) {
+    if (updated.assignedAgentId) {
       this.gamificationClient.emit('ticket.rated', {
-        ticketId: ticket.ticketNumber,
-        agentId: ticket.assignedAgentId,
+        ticketId: updated.ticketNumber,
+        agentId: updated.assignedAgentId,
         rating: dto.rating,
       });
     }
 
-    this.ticketsGateway.notifyTicketStatusUpdated(ticket.customerId, updated);
+    this.ticketsGateway.notifyTicketStatusUpdated(updated.customerId, updated);
 
     return updated;
   }
@@ -493,16 +512,84 @@ export class TicketsService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  async addMessage(ticketNumber: string, dto: AddMessageDto, senderId: string, senderRole: MessageRole): Promise<Ticket> {
+  // Süpervizör dashboard'u: temsilci bazlı çözülen talep, ortalama müşteri puanı, SLA uyumu
+  async getTeamPerformance() {
+    const rows = await this.ticketModel.aggregate([
+      { $match: { assignedAgentId: { $ne: null } } },
+      {
+        $group: {
+          _id: '$assignedAgentId',
+          resolvedCount: {
+            $sum: { $cond: [{ $in: ['$status', [TicketStatus.COZULDU, TicketStatus.KAPANDI]] }, 1, 0] },
+          },
+          avgRating: { $avg: '$rating' },
+          slaEligible: {
+            $sum: {
+              $cond: [
+                { $and: [{ $in: ['$status', [TicketStatus.COZULDU, TicketStatus.KAPANDI]] }, { $ne: ['$resolvedAt', null] }] },
+                1,
+                0,
+              ],
+            },
+          },
+          slaMet: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $in: ['$status', [TicketStatus.COZULDU, TicketStatus.KAPANDI]] },
+                    { $ne: ['$resolvedAt', null] },
+                    { $lte: ['$resolvedAt', '$slaDeadline'] },
+                  ],
+                },
+                1,
+                0,
+              ],
+            },
+          },
+        },
+      },
+      { $sort: { resolvedCount: -1 } },
+    ]);
+
+    return rows.map((r) => ({
+      agentId: r._id,
+      resolvedCount: r.resolvedCount,
+      avgRating: r.avgRating ?? null,
+      slaComplianceRate: r.slaEligible ? r.slaMet / r.slaEligible : null,
+    }));
+  }
+
+  // ================= Talep İçi Mesajlaşma (Thread) =================
+  // Spec: yalnızca talep sahibi müşteri ile atanan temsilci mesajlaşabilir.
+  async addMessage(ticketNumber: string, dto: AddMessageDto, user: JwtUser): Promise<Ticket> {
     const ticket = await this.findOne(ticketNumber);
 
-    // Müşteri yalnızca kendi talebine mesaj yazabilir
-    if (senderRole === MessageRole.MUSTERI && ticket.customerId !== senderId) {
-      throw new ForbiddenException('You can only message your own tickets');
+    // Erişim kuralları
+    let senderRole: MessageRole;
+    if (user.role === UserRole.USER) {
+      if (ticket.customerId !== user.sub) {
+        this.auditClient.deny(user, 'TICKET_MESSAGE', 'Yalnızca kendi talebinize mesaj yazabilirsiniz', { ticketNumber });
+      }
+      senderRole = MessageRole.MUSTERI;
+    } else if (user.role === UserRole.TEMSILCI) {
+      if (ticket.assignedAgentId !== user.sub) {
+        this.auditClient.deny(user, 'TICKET_MESSAGE', 'Yalnızca size atanan taleplere mesaj yazabilirsiniz', { ticketNumber });
+      }
+      senderRole = MessageRole.TEMSILCI;
+    } else {
+      // Spec: mesajlaşma müşteri ile atanan temsilci arasındadır
+      this.auditClient.deny(user, 'TICKET_MESSAGE', 'Mesajlaşma yalnızca müşteri ile atanan temsilci arasındadır', { ticketNumber });
+      senderRole = MessageRole.SISTEM; // unreachable — deny fırlatır
+    }
+
+    // Kapalı taleplerde thread de kapalıdır
+    if (ticket.status === TicketStatus.KAPANDI || ticket.status === TicketStatus.IPTAL) {
+      throw new UnprocessableEntityException('Kapatılmış taleplere mesaj yazılamaz');
     }
 
     const newMessage = {
-      senderId,
+      senderId: user.sub,
       senderRole,
       content: dto.content,
       createdAt: new Date(),
@@ -510,10 +597,16 @@ export class TicketsService implements OnModuleInit, OnModuleDestroy {
 
     ticket.messages.push(newMessage as Message);
 
-    // State Machine Otomatik Geçişleri
+    // State Machine Otomatik Geçişleri (Spec 4.2)
     if (senderRole === MessageRole.MUSTERI && ticket.status === TicketStatus.MUSTERI_BEKLENIYOR) {
+      // Sistem: müşteri yanıt verdi -> ISLEMDE
       ticket.status = TicketStatus.ISLEMDE;
-    } else if (senderRole === MessageRole.TEMSILCI && ticket.status === TicketStatus.ISLEMDE) {
+    } else if (
+      senderRole === MessageRole.TEMSILCI &&
+      dto.awaitCustomer === true &&
+      ticket.status === TicketStatus.ISLEMDE
+    ) {
+      // Temsilci bilgi istedi -> MUSTERI_BEKLENIYOR (opsiyonel, temsilcinin tercihi)
       ticket.status = TicketStatus.MUSTERI_BEKLENIYOR;
     }
 
@@ -523,6 +616,15 @@ export class TicketsService implements OnModuleInit, OnModuleDestroy {
     this.ticketsGateway.notifyNewMessage(updated, newMessage);
 
     return updated;
+  }
+
+  // Mesaj thread'i — kronolojik sırayla (görüntüleme kuralları findOne ile aynı,
+  // erişim kontrolü controller'da yapılır)
+  async getMessages(ticketNumber: string): Promise<Message[]> {
+    const ticket = await this.findOne(ticketNumber);
+    return [...ticket.messages].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
   }
 
   // Sadece AI Service (veya RabbitMQ consumer) tarafından çağrılır
