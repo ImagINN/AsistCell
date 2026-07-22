@@ -12,6 +12,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Yerel kategori sınıflandırma modelini eğit (veri seti: data/training_data.csv)
+RUN python scripts/train_model.py
+
 EXPOSE 3003
 
 # Migrationları çalıştır ve uygulamayı başlat
