@@ -7,6 +7,7 @@ import { TicketsController } from './tickets.controller';
 import { TicketsGateway } from './tickets.gateway';
 import { Ticket, TicketSchema } from './schemas/ticket.schema';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { AuditClient } from '../common/audit.client';
 
 const RABBITMQ_URLS = [
   process.env.RABBITMQ_URI || 'amqp://asistcell:asistcell_secret@localhost:5672',
@@ -42,6 +43,6 @@ const RABBITMQ_URLS = [
     ]),
   ],
   controllers: [TicketsController],
-  providers: [TicketsService, TicketsGateway, JwtAuthGuard],
+  providers: [TicketsService, TicketsGateway, JwtAuthGuard, AuditClient],
 })
 export class TicketsModule {}

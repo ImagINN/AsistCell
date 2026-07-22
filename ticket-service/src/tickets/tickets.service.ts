@@ -9,15 +9,19 @@ import { AddMessageDto } from './dto/add-message.dto';
 import { RateTicketDto } from './dto/rate-ticket.dto';
 import { AssignTicketDto } from './dto/assign-ticket.dto';
 import { ListTicketsQueryDto } from './dto/list-tickets-query.dto';
-import { TicketStatus, MessageRole, TicketPriority, isStaff } from '../common/enums';
+import { UpdateCategoryDto } from './dto/update-category.dto';
+import { TicketStatus, MessageRole, TicketPriority, UserRole, isStaff } from '../common/enums';
 import { StateMachineException } from '../common/exceptions/state-machine.exception';
 import { TicketsGateway } from './tickets.gateway';
+import { AuditClient } from '../common/audit.client';
+import { JwtUser } from '../common/guards/jwt-auth.guard';
 
 @Injectable()
 export class TicketsService {
   constructor(
     @InjectModel(Ticket.name) private ticketModel: Model<Ticket>,
     private ticketsGateway: TicketsGateway,
+    private auditClient: AuditClient,
     @Inject('AI_SERVICE') private aiClient: ClientProxy,
     @Inject('GAMIFICATION_SERVICE') private gamificationClient: ClientProxy,
   ) {}
@@ -114,17 +118,20 @@ export class TicketsService {
   async updateStatus(
     ticketNumber: string,
     updateDto: UpdateTicketStatusDto,
-    role: string,
-    userId: string,
+    user: JwtUser,
   ): Promise<Ticket> {
     const ticket = await this.findOne(ticketNumber);
 
-    // Müşteri yalnızca kendi talebini iptal edebilir / güncelleyebilir
-    if (!isStaff(role) && ticket.customerId !== userId) {
-      throw new ForbiddenException('You can only modify your own tickets');
+    // Yetki matrisi: durum değiştirme yalnızca TEMSILCI ve SUPERVIZOR.
+    // Temsilci sadece kendisine atanan talebin durumunu değiştirebilir.
+    if (user.role !== UserRole.TEMSILCI && user.role !== UserRole.SUPERVIZOR) {
+      this.auditClient.deny(user, 'TICKET_STATUS_UPDATE', 'Talep durumunu yalnızca temsilci veya süpervizör değiştirebilir', { ticketNumber });
+    }
+    if (user.role === UserRole.TEMSILCI && ticket.assignedAgentId !== user.sub) {
+      this.auditClient.deny(user, 'TICKET_STATUS_UPDATE', 'Yalnızca size atanan taleplerin durumunu değiştirebilirsiniz', { ticketNumber });
     }
 
-    if (!this.isValidStatusTransition(ticket.status, updateDto.status, role)) {
+    if (!this.isValidStatusTransition(ticket.status, updateDto.status, user.role)) {
       throw new StateMachineException(ticket.status, updateDto.status);
     }
 
@@ -139,6 +146,14 @@ export class TicketsService {
     }
 
     const updated = await ticket.save();
+
+    // Kritik durum değişiklikleri (çözüm/iptal) merkezi audit log'a yazılır
+    if (updated.status === TicketStatus.COZULDU || updated.status === TicketStatus.IPTAL) {
+      this.auditClient.logEvent(user, 'TICKET_STATUS_CHANGED', updated.ticketNumber, {
+        from: previousStatus,
+        to: updated.status,
+      });
+    }
 
     // Çözüm/iptal eventleri (gamification puanı + AI kapasite düşümü)
     this.emitLifecycleEvents(updated, previousStatus);
@@ -246,6 +261,31 @@ export class TicketsService {
     return updated;
   }
 
+  // ================= Kategori Değiştirme / AI Override (Temsilci-atanan, Süpervizör) =================
+  async updateCategory(ticketNumber: string, dto: UpdateCategoryDto, user: JwtUser): Promise<Ticket> {
+    const ticket = await this.findOne(ticketNumber);
+
+    if (user.role !== UserRole.TEMSILCI && user.role !== UserRole.SUPERVIZOR) {
+      this.auditClient.deny(user, 'TICKET_CATEGORY_UPDATE', 'Kategoriyi yalnızca temsilci veya süpervizör değiştirebilir', { ticketNumber });
+    }
+    if (user.role === UserRole.TEMSILCI && ticket.assignedAgentId !== user.sub) {
+      this.auditClient.deny(user, 'TICKET_CATEGORY_UPDATE', 'Yalnızca size atanan taleplerin kategorisini değiştirebilirsiniz', { ticketNumber });
+    }
+    if (ticket.status === TicketStatus.COZULDU || ticket.status === TicketStatus.IPTAL) {
+      throw new ForbiddenException('Kapatılmış taleplerin kategorisi değiştirilemez');
+    }
+
+    // AI'ın atadığı kategori değiştiriliyorsa doğruluk metriğine yansıt
+    if (ticket.aiProcessed && ticket.aiCategory && dto.category !== ticket.aiCategory) {
+      ticket.categoryOverriddenAfterAi = true;
+    }
+    ticket.category = dto.category;
+
+    const updated = await ticket.save();
+    this.ticketsGateway.notifyTicketStatusUpdated(ticket.customerId, updated);
+    return updated;
+  }
+
   // ================= Dashboard İstatistikleri (Süpervizör/Admin) =================
   async getDashboardStats() {
     const [byStatus, byPriority, slaAgg, ratingAgg, aiAgg] = await Promise.all([
@@ -278,7 +318,8 @@ export class TicketsService {
         { $match: { rating: { $ne: null } } },
         { $group: { _id: null, avgRating: { $avg: '$rating' }, ratedCount: { $sum: 1 } } },
       ]),
-      // AI doğruluğu: AI'ın atadığı taleplerin ne kadarı manuel değiştirilmedi
+      // AI doğruluğu: AI analizlerinin ne kadarı manuel düzeltilmedi
+      // (atama değişikliği veya kategori override'ı = AI hatası sayılır)
       this.ticketModel.aggregate([
         { $match: { aiProcessed: true } },
         {
@@ -286,6 +327,16 @@ export class TicketsService {
             _id: null,
             analyzed: { $sum: 1 },
             reassigned: { $sum: { $cond: ['$reassignedAfterAi', 1, 0] } },
+            categoryOverridden: { $sum: { $cond: ['$categoryOverriddenAfterAi', 1, 0] } },
+            misses: {
+              $sum: {
+                $cond: [
+                  { $or: ['$reassignedAfterAi', '$categoryOverriddenAfterAi'] },
+                  1,
+                  0,
+                ],
+              },
+            },
           },
         },
       ]),
@@ -315,7 +366,8 @@ export class TicketsService {
       ai: {
         analyzedCount: ai?.analyzed ?? 0,
         reassignedCount: ai?.reassigned ?? 0,
-        accuracyRate: ai?.analyzed ? 1 - ai.reassigned / ai.analyzed : null,
+        categoryOverriddenCount: ai?.categoryOverridden ?? 0,
+        accuracyRate: ai?.analyzed ? 1 - ai.misses / ai.analyzed : null,
       },
     };
   }
@@ -364,7 +416,14 @@ export class TicketsService {
       return ticket.save();
     }
 
-    ticket.category = analysisData.category;
+    ticket.aiCategory = analysisData.category;
+    // Personel analizden önce kategori atadıysa (BELIRSIZ dışı) AI onu ezmez;
+    // seçim AI önerisinden farklıysa doğruluk metriğine yansıtılır.
+    if (ticket.category === 'BELIRSIZ') {
+      ticket.category = analysisData.category;
+    } else if (ticket.category !== analysisData.category) {
+      ticket.categoryOverriddenAfterAi = true;
+    }
     ticket.priority = analysisData.priority;
 
     // AI yalnızca henüz atanmamış talepleri atayabilir; manuel atama (süpervizör)

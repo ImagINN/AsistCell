@@ -13,6 +13,7 @@ export interface JwtUser {
   email: string;
   role: string;
   iss: string;
+  ip?: string; // Kong'un X-Forwarded-For başlığından gelen istemci IP'si
 }
 
 // Kong JWT plugin token'ı gateway seviyesinde doğrular, ancak servis
@@ -53,6 +54,8 @@ export class JwtAuthGuard implements CanActivate {
       const payload = this.jwtService.verify<JwtUser>(token, {
         secret: process.env.JWT_ACCESS_SECRET,
       });
+      const forwarded = request.headers['x-forwarded-for'] as string | undefined;
+      payload.ip = forwarded?.split(',')[0]?.trim() || request.ip;
       request.user = payload;
       return true;
     } catch {
