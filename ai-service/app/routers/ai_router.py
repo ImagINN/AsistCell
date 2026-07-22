@@ -37,9 +37,24 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
     total = await db.scalar(select(func.count(AnalysisLog.id)))
     fallback_count = await db.scalar(select(func.count(AnalysisLog.id)).where(AnalysisLog.fallback_used == True))
     manual_count = await db.scalar(select(func.count(AnalysisLog.id)).where(AnalysisLog.manual_queue == True))
-    
+
+    # Doğruluk: kategorisi kesin tahmin edilenler içinde personelce farklı
+    # bir kategoriye düzeltilmeyenlerin oranı
+    predicted = await db.scalar(
+        select(func.count(AnalysisLog.id)).where(AnalysisLog.category != "BELIRSIZ")
+    )
+    corrected = await db.scalar(
+        select(func.count(AnalysisLog.id)).where(
+            AnalysisLog.category != "BELIRSIZ",
+            AnalysisLog.corrected_category != None,
+            AnalysisLog.corrected_category != AnalysisLog.category,
+        )
+    )
+
     return {
         "total_analyzed": total,
         "fallback_used": fallback_count,
-        "manual_queue": manual_count
+        "manual_queue": manual_count,
+        "category_corrections": corrected,
+        "accuracy_rate": (predicted - corrected) / predicted if predicted else None
     }

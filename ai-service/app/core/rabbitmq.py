@@ -73,6 +73,11 @@ class RabbitMQClient:
                     await self.handle_ticket_released(data)
                     return
 
+                # Personel kategori düzeltmesi → doğruluk metriğine işle
+                if pattern == "ticket.category_changed":
+                    await self.handle_category_changed(data)
+                    return
+
                 if pattern != "ticket.created":
                     logger.warning(f"Ignoring unknown pattern: {pattern}")
                     return
@@ -110,6 +115,41 @@ class RabbitMQClient:
                 logger.error(f"Error processing RabbitMQ message: {e}")
                 # Hatalı mesajları red et ve DQL'e (Dead Letter Queue) girmesi veya düşmesi için process bloğu hata fırlatacak.
                 raise
+
+    async def handle_category_changed(self, data: dict):
+        """Personelin kategori düzeltmesini analysis_log'a işler (doğruluk metriği)."""
+        # Circular import'u önlemek için lazy import
+        from datetime import datetime, timezone
+        from sqlalchemy import select
+        from app.models.analysis_log import AnalysisLog
+
+        ticket_id = data.get("ticketId")
+        new_category = data.get("newCategory")
+        if not ticket_id or not new_category:
+            logger.warning(f"ticket.category_changed with missing fields: {data}")
+            return
+
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(AnalysisLog)
+                .where(AnalysisLog.ticket_id == ticket_id)
+                .order_by(AnalysisLog.created_at.desc())
+            )
+            log = result.scalars().first()
+
+            if not log:
+                logger.warning(f"ticket.category_changed for unknown ticket {ticket_id}")
+                return
+
+            log.corrected_category = new_category
+            log.corrected_by_role = data.get("changedByRole")
+            log.corrected_at = datetime.now(timezone.utc)
+            session.add(log)
+            await session.commit()
+            logger.info(
+                f"Category correction recorded for ticket {ticket_id}: "
+                f"{log.category} -> {new_category} (by {log.corrected_by_role})"
+            )
 
     async def handle_ticket_released(self, data: dict):
         """Ticket kapandığında (COZULDU/IPTAL) temsilcinin aktif ticket sayısını azaltır."""
