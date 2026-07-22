@@ -7,8 +7,10 @@ import Dashboard from './pages/Dashboard';
 import CreateTicket from './pages/CreateTicket';
 import TicketDetail from './pages/TicketDetail';
 import SupervisorDashboard from './pages/SupervisorDashboard';
+import CompletedTickets from './pages/CompletedTickets';
 import Profile from './pages/Profile';
 import AuditLog from './pages/AuditLog';
+import UserManagementPage from './pages/UserManagementPage';
 import Forbidden from './pages/Forbidden';
 import NotFound from './pages/NotFound';
 
@@ -60,6 +62,11 @@ function App() {
               <SupervisorDashboard />
             </RoleRoute>
           } />
+          <Route path="/log/completed-tickets" element={
+            <RoleRoute roles={['SUPERVIZOR', 'ADMIN']}>
+              <CompletedTickets />
+            </RoleRoute>
+          } />
           <Route path="/profile" element={
             <RoleRoute roles={['TEMSILCI']}>
               <Profile />
@@ -68,6 +75,11 @@ function App() {
           <Route path="/admin/audit-logs" element={
             <RoleRoute roles={['ADMIN']}>
               <AuditLog />
+            </RoleRoute>
+          } />
+          <Route path="/admin/users" element={
+            <RoleRoute roles={['ADMIN']}>
+              <UserManagementPage />
             </RoleRoute>
           } />
           <Route path="/403" element={<Forbidden />} />

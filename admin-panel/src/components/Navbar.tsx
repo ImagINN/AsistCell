@@ -1,14 +1,8 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { LogOut, Plus, LayoutDashboard, BarChart3, ShieldCheck, User } from 'lucide-react';
-
-const ROLE_LABELS: Record<string, string> = {
-  USER: 'Müşteri',
-  TEMSILCI: 'Temsilci',
-  SUPERVIZOR: 'Süpervizör',
-  ADMIN: 'Admin',
-};
+import { LogOut, Plus, LayoutDashboard, BarChart3, ShieldCheck, User, Archive, Users } from 'lucide-react';
+import { ROLE_LABELS } from '../constants/roles';
 
 const NavItem: React.FC<{ to: string; active: boolean; children: React.ReactNode }> = ({
   to,
@@ -51,10 +45,22 @@ const Navbar: React.FC = () => {
                   Süpervizör Dashboard
                 </NavItem>
               )}
+              {isSupervisorOrAdmin && (
+                <NavItem to="/log/completed-tickets" active={location.pathname === '/log/completed-tickets'}>
+                  <Archive className="w-4 h-4" />
+                  Tamamlanan Talepler
+                </NavItem>
+              )}
               {user.role === 'TEMSILCI' && (
                 <NavItem to="/profile" active={location.pathname === '/profile'}>
                   <User className="w-4 h-4" />
                   Profilim
+                </NavItem>
+              )}
+              {user.role === 'ADMIN' && (
+                <NavItem to="/admin/users" active={location.pathname === '/admin/users'}>
+                  <Users className="w-4 h-4" />
+                  Kullanıcı Yönetimi
                 </NavItem>
               )}
               {user.role === 'ADMIN' && (
