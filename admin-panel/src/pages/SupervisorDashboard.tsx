@@ -26,6 +26,16 @@ interface TeamRow {
   resolvedCount: number;
   avgRating: number | null;
   slaComplianceRate: number | null;
+  avgResolutionMinutes: number | null;
+}
+
+interface SlaOverdueTicket {
+  ticketNumber: string;
+  title: string;
+  priority: string;
+  category: string;
+  slaDeadline: string;
+  assignedAgentId?: string;
 }
 
 interface AiStats {
@@ -67,6 +77,7 @@ const SupervisorDashboard: React.FC = () => {
   const [agents, setAgents] = useState<DirectoryUser[]>([]);
   const [pendingPage, setPendingPage] = useState(0);
   const PENDING_PAGE_SIZE = 10;
+  const [slaOverdue, setSlaOverdue] = useState<SlaOverdueTicket[]>([]);
 
   const loadAll = () => {
     api.get('/tickets/stats/dashboard').then((r) => setStats(r.data)).catch(() => {});
@@ -75,10 +86,17 @@ const SupervisorDashboard: React.FC = () => {
       fetchUsersByIds(r.data.map((t: TeamRow) => t.agentId)).then(setNames);
     }).catch(() => {});
     api.get('/ai/stats').then((r) => setAiStats(r.data)).catch(() => {});
-    // Bekleyen kuyruk: henüz kimseye atanmamış (YENI) talepler — kapasitesizlik
-    // yüzünden AI'ın atayamadığı gerçek kategorili talepler de burada görünür,
-    // sadece BELIRSIZ kategorili olanlar değil.
+    // Bekleyen kuyruk: henüz kimseye atanmamış (YENI) talepler
     api.get('/tickets', { params: { status: 'YENI' } }).then((r) => setPending(r.data)).catch(() => {});
+    // SLA aşmış aktif talepler: slaDeadline geçmiş, henüz kapatılmamış
+    api.get('/tickets', { params: { slaOverdue: true } })
+      .then((r) => {
+        const overdue: SlaOverdueTicket[] = (Array.isArray(r.data) ? r.data : [])
+          .filter((t: any) => t.slaDeadline && new Date(t.slaDeadline) < new Date()
+            && !['KAPANDI', 'IPTAL', 'COZULDU'].includes(t.status));
+        setSlaOverdue(overdue);
+      })
+      .catch(() => {});
   };
 
   useEffect(() => {
@@ -225,13 +243,14 @@ const SupervisorDashboard: React.FC = () => {
                 <tr className="text-left text-gray-500 border-b">
                   <th className="py-2 pr-4">Temsilci</th>
                   <th className="py-2 pr-4">Çözülen Talep</th>
+                  <th className="py-2 pr-4">Ort. Çözüm Süresi</th>
                   <th className="py-2 pr-4">Ort. Müşteri Puanı</th>
                   <th className="py-2">SLA Uyumu</th>
                 </tr>
               </thead>
               <tbody>
                 {team.length === 0 ? (
-                  <tr><td colSpan={4} className="py-6 text-center text-gray-400">Henüz veri yok</td></tr>
+                  <tr><td colSpan={5} className="py-6 text-center text-gray-400">Henüz veri yok</td></tr>
                 ) : (
                   team.map((t) => (
                     <tr key={t.agentId} className="border-b last:border-0">
@@ -240,6 +259,13 @@ const SupervisorDashboard: React.FC = () => {
                         <span className="ml-2 text-xs text-gray-400">Temsilci</span>
                       </td>
                       <td className="py-2 pr-4 font-semibold text-gray-900">{t.resolvedCount}</td>
+                      <td className="py-2 pr-4 text-gray-700">
+                        {t.avgResolutionMinutes != null
+                          ? t.avgResolutionMinutes >= 60
+                            ? `${Math.floor(t.avgResolutionMinutes / 60)}sa ${t.avgResolutionMinutes % 60}dk`
+                            : `${t.avgResolutionMinutes}dk`
+                          : '—'}
+                      </td>
                       <td className="py-2 pr-4">{t.avgRating ? t.avgRating.toFixed(1) : '—'}</td>
                       <td className="py-2">{pct(t.slaComplianceRate)}</td>
                     </tr>
@@ -249,6 +275,44 @@ const SupervisorDashboard: React.FC = () => {
             </table>
           </div>
         </div>
+
+        {/* SLA Aşmış Aktif Talepler */}
+        {slaOverdue.length > 0 && (
+          <div className="glass-panel p-6 animate-slide-up border-l-4 border-red-500">
+            <h3 className="text-sm font-bold text-red-700 flex items-center mb-4">
+              <AlertCircle className="w-4 h-4 mr-2" />
+              SLA Aşmış Aktif Talepler
+              <span className="ml-2 bg-red-100 text-red-700 text-xs font-bold px-2 py-0.5 rounded-full">{slaOverdue.length}</span>
+            </h3>
+            <div className="divide-y divide-gray-100">
+              {slaOverdue.map((t) => {
+                const overdueMs = Date.now() - new Date(t.slaDeadline).getTime();
+                const overdueMin = Math.floor(overdueMs / 60000);
+                const overdueStr = overdueMin >= 60
+                  ? `${Math.floor(overdueMin / 60)}sa ${overdueMin % 60}dk`
+                  : `${overdueMin}dk`;
+                return (
+                  <div key={t.ticketNumber} className="py-3 flex flex-wrap items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <Link to={`/tickets/${t.ticketNumber}`} className="font-medium text-gray-900 hover:text-brand-primary">
+                        {t.title}
+                      </Link>
+                      <div className="text-xs text-gray-400 mt-0.5">
+                        {t.ticketNumber} • {CATEGORY_LABELS[t.category] ?? t.category} • {PRIORITY_LABELS[t.priority] ?? t.priority}
+                      </div>
+                    </div>
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold border ${
+                      t.priority === 'KRITIK' ? 'bg-red-600 text-white border-red-700 animate-pulse'
+                      : 'bg-orange-100 text-orange-800 border-orange-300'
+                    }`}>
+                      SLA {overdueStr} aşıldı
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Bekleyen atama kuyruğu */}
         <div className="glass-panel p-6 animate-slide-up">

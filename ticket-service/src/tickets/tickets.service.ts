@@ -589,6 +589,21 @@ export class TicketsService implements OnModuleInit, OnModuleDestroy {
               ],
             },
           },
+          // Ortalama çözüm süresi: resolvedAt - createdAt (ms) — yalnızca çözülmüş talepler
+          avgResolutionMs: {
+            $avg: {
+              $cond: [
+                {
+                  $and: [
+                    { $in: ['$status', [TicketStatus.COZULDU, TicketStatus.KAPANDI]] },
+                    { $ne: ['$resolvedAt', null] },
+                  ],
+                },
+                { $subtract: ['$resolvedAt', '$createdAt'] },
+                null,
+              ],
+            },
+          },
         },
       },
       { $sort: { resolvedCount: -1 } },
@@ -599,6 +614,8 @@ export class TicketsService implements OnModuleInit, OnModuleDestroy {
       resolvedCount: r.resolvedCount,
       avgRating: r.avgRating ?? null,
       slaComplianceRate: r.slaEligible ? r.slaMet / r.slaEligible : null,
+      // ms → dakika, null korunur (henüz çözülmüş talep yoksa)
+      avgResolutionMinutes: r.avgResolutionMs != null ? Math.round(r.avgResolutionMs / 60000) : null,
     }));
   }
 
