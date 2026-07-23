@@ -27,7 +27,24 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    lifespan=lifespan
+    description=(
+        "AsistCell AI Service — talep kategori sınıflandırma, sentiment analizi ve "
+        "akıllı temsilci ataması. Hibrit yaklaşım: Gemini (LLM) birincil, kendi "
+        "eğittiğimiz TF-IDF + Logistic Regression modeli fallback. Detaylar için "
+        "bkz. repo kökü `AI_APPROACH.md`."
+    ),
+    version="1.0.0",
+    lifespan=lifespan,
+    # Kong route'u strip_path:false ile `/api/v1/ai/**`'i olduğu gibi upstream'e
+    # iletir; Swagger UI/OpenAPI şeması da bu yüzden aynı prefix altında
+    # yayınlanır — aksi halde Kong arkasından (http://localhost:8000/...) erişilemez.
+    openapi_url="/api/v1/ai/openapi.json",
+    docs_url="/api/v1/ai/docs",
+    redoc_url="/api/v1/ai/redoc",
+    openapi_tags=[
+        {"name": "AI", "description": "Kategori sınıflandırma, sentiment analizi, atama, doğruluk istatistikleri"},
+        {"name": "Agents", "description": "Temsilci (agent) kaydı — uzmanlık, kapasite, performans"},
+    ],
 )
 
 app.include_router(ai_router.router)
