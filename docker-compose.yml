@@ -210,12 +210,15 @@ services:
     environment:
       PORT: 3003
       DATABASE_URL: postgresql://${AI_POSTGRES_USER}:${AI_POSTGRES_PASSWORD}@ai-postgres:5432/${AI_POSTGRES_DB}
+      RABBITMQ_URI: amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       # gemini-2.5-flash emekliye ayrıldı (404). "latest" alias'ı model
       # emekliliklerinden etkilenmez; .env ile override edilebilir.
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-flash-latest}
     depends_on:
       ai-postgres:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     healthcheck:
       # İmajda curl yok — Python stdlib ile kontrol ediyoruz
