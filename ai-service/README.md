@@ -68,13 +68,15 @@ Logistic Regression sınıflandırıcısı) · `tenacity`
 
 Base path: `/api/v1/ai` (Kong route'unda `jwt` plugin zorunlu; servisin kendisi
 ayrıca lokal bir auth kontrolü yapmaz, doğrulama tamamen Kong'da yapılır).
+**Swagger/OpenAPI UI:** `http://localhost:8000/api/v1/ai/docs` (ReDoc: `/api/v1/ai/redoc`).
 
 | Method | Path | Açıklama |
 |---|---|---|
 | POST | `/analyze` | Ticket'ı sınıflandırır ve temsilci atama önerisi üretir (Gemini + circuit breaker fallback) |
+| GET | `/analysis/{ticket_id}` | Bir talebin en güncel AI analiz sonucunu döner (kategori, güven, sentiment, öncelik) |
 | GET | `/health` | Servis sağlığı + circuit breaker durumu/hata sayısı |
-| GET | `/stats` | Toplam analiz sayısı, fallback sayısı, manuel kuyruğa düşen sayısı |
-| POST | `/agents` | Yeni temsilci (agent) kaydı oluşturur |
+| GET | `/stats` | Toplam analiz sayısı, fallback sayısı, manuel kuyruğa düşen sayısı, kategori/sentiment dağılımı, doğruluk oranı |
+| POST | `/agents` | Yeni temsilci (agent) kaydı oluşturur (identity-service tarafından senkronize edilir) |
 | GET | `/agents` | Temsilcileri isme göre listeler |
 | PATCH | `/agents/{agent_id}` | Temsilci bilgilerini günceller |
 
@@ -85,14 +87,25 @@ ayrıca lokal bir auth kontrolü yapmaz, doğrulama tamamen Kong'da yapılır).
 | Event | Payload | Davranış |
 |---|---|---|
 | `ticket.created` | `{ ticketId, title, description }` | Analizi çalıştırır, sonucu `ticket.analyzed` ile geri yayınlar |
-| `ticket.released` | `{ ticketId, agentId, resolved }` | İlgili temsilcinin `active_ticket_count`'unu azaltır |
+| `ticket.released` | `{ ticketId, agentId, resolved }` | İlgili temsilcinin `active_ticket_count`'unu azaltır; ardından kapasitesizlik yüzünden manuel kuyrukta bekleyen talepleri tekrar atamayı dener (`ticket.analyzed` ile yeniden yayınlanır) |
 | `ticket.category_changed` | `{ ticketId, aiCategory, newCategory, changedByRole }` | Personel kategori düzeltmesini `analysis_logs.corrected_category`'ye işler (doğruluk metriği) |
+| `ticket.rated` | `{ agentId, rating }` | Temsilcinin `average_rating`'ini günceller — akıllı atama formülündeki *performans* bileşeni buradan türetilir |
 
 **Yayınlanan event'ler** (routing key: `ticket_updates_queue`, tüketen: ticket-service):
 
 | Event | Payload |
 |---|---|
-| `ticket.analyzed` | `{ ticketId, category, sentiment, priority, assignedAgentId }` |
+| `ticket.analyzed` | `{ ticketId, category, confidence, sentiment, priority, assignedAgentId }` |
+
+Tüm event payload'larının tam şeması ve örnekleri için bkz. [`EVENTS.md`](../EVENTS.md).
+Yaklaşım/model seçimi ve akıllı atama formülünün tam gerekçesi için bkz. [`AI_APPROACH.md`](../AI_APPROACH.md).
+
+## Diğer Servislerle REST Bağımlılığı
+
+Bu servis kendi başına başka bir servise senkron REST çağrısı yapmaz. Ancak
+identity-service, bir TEMSILCI hesabı oluşturulduğunda/güncellendiğinde bu
+servisin `/api/v1/ai/agents` endpoint'ine senkron, fire-and-forget bir REST
+çağrısıyla atama havuzunu senkron tutar (bkz. [identity-service README](../identity-service/README.md)).
 
 ## Environment Değişkenleri
 
