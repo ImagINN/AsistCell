@@ -101,7 +101,7 @@ const Login: React.FC = () => {
                   required
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
-                  placeholder="ornek@mail.com veya 05XX XXX XX XX"
+                  placeholder="ornek@mail.com veya 5XX XXX XX XX"
                   className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-brand-primary focus:border-brand-primary sm:text-sm"
                 />
               </div>
