@@ -23,7 +23,7 @@ export class RegisterDto {
   lastName: string;
 
   @Matches(GSM_REGEX, {
-    message: 'Geçerli bir GSM numarası giriniz (örn. 05XX XXX XX XX)',
+    message: 'Geçerli bir GSM numarası giriniz (örn. 5XX XXX XX XX)',
   })
   gsmNumber: string;
 

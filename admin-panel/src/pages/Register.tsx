@@ -114,7 +114,7 @@ const Register: React.FC = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700">GSM Numarası</label>
-                <input type="tel" required value={gsmNumber} placeholder="05XX XXX XX XX"
+                <input type="tel" required value={gsmNumber} placeholder="5XX XXX XX XX"
                   onChange={(e) => setGsmNumber(e.target.value)} className={inputClass} />
               </div>
 

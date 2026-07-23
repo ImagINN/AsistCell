@@ -2,6 +2,8 @@ import time
 from enum import Enum
 import logging
 
+from app.config import settings
+
 logger = logging.getLogger(__name__)
 
 class CircuitState(Enum):
@@ -59,5 +61,8 @@ class CircuitBreaker:
 
         return False
 
-# Singleton instance
-circuit_breaker = CircuitBreaker()
+# Singleton instance — CB_FAILURE_THRESHOLD/CB_RECOVERY_TIMEOUT ile yapılandırılabilir
+circuit_breaker = CircuitBreaker(
+    failure_threshold=settings.CB_FAILURE_THRESHOLD,
+    recovery_timeout=settings.CB_RECOVERY_TIMEOUT,
+)
