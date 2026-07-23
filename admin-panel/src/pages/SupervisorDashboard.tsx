@@ -4,6 +4,7 @@ import { io, Socket } from 'socket.io-client';
 import { AlertCircle, CheckCircle2, Clock, Gauge, Sparkles, Users, UserCheck } from 'lucide-react';
 import api, { API_ORIGIN } from '../services/api';
 import Navbar from '../components/Navbar';
+import Pagination from '../components/Pagination';
 import DonutChart from '../components/charts/DonutChart';
 import BarChart from '../components/charts/BarChart';
 import AutoAssignmentFeed from '../components/AutoAssignmentFeed';
@@ -64,6 +65,8 @@ const SupervisorDashboard: React.FC = () => {
   const [assignError, setAssignError] = useState<Record<string, string>>({});
   const [names, setNames] = useState<Map<string, DirectoryUser>>(new Map());
   const [agents, setAgents] = useState<DirectoryUser[]>([]);
+  const [pendingPage, setPendingPage] = useState(0);
+  const PENDING_PAGE_SIZE = 10;
 
   const loadAll = () => {
     api.get('/tickets/stats/dashboard').then((r) => setStats(r.data)).catch(() => {});
@@ -249,15 +252,31 @@ const SupervisorDashboard: React.FC = () => {
 
         {/* Bekleyen atama kuyruğu */}
         <div className="glass-panel p-6 animate-slide-up">
-          <h3 className="text-sm font-bold text-gray-900 flex items-center mb-4">
-            <AlertCircle className="w-4 h-4 mr-2 text-amber-600" />
-            Bekleyen Atama Kuyruğu (Atanmamış Talepler)
-          </h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-gray-900 flex items-center">
+              <AlertCircle className="w-4 h-4 mr-2 text-amber-600" />
+              Bekleyen Atama Kuyruğu (Atanmamış Talepler)
+            </h3>
+            {pending.length > 0 && (
+              <div className="flex items-center gap-2">
+                {Math.ceil(pending.length / PENDING_PAGE_SIZE) > 1 && (
+                  <span className="text-xs text-gray-500">
+                    {pendingPage * PENDING_PAGE_SIZE + 1}–{Math.min((pendingPage + 1) * PENDING_PAGE_SIZE, pending.length)} / {pending.length}
+                  </span>
+                )}
+                <span className="bg-amber-100 text-amber-800 text-xs font-bold px-2.5 py-0.5 rounded-full">
+                  {pending.length} talep
+                </span>
+              </div>
+            )}
+          </div>
           <div className="divide-y divide-gray-100">
             {pending.length === 0 ? (
               <p className="text-center text-gray-400 py-6 text-sm">Kuyrukta bekleyen talep yok.</p>
             ) : (
-              pending.map((t) => (
+              pending
+                .slice(pendingPage * PENDING_PAGE_SIZE, (pendingPage + 1) * PENDING_PAGE_SIZE)
+                .map((t) => (
                 <div key={t.ticketNumber} className="py-3 flex flex-wrap items-center justify-between gap-3">
                   <div className="min-w-0">
                     <Link to={`/tickets/${t.ticketNumber}`} className="font-medium text-gray-900 hover:text-brand-primary">
@@ -295,6 +314,15 @@ const SupervisorDashboard: React.FC = () => {
               ))
             )}
           </div>
+          {Math.ceil(pending.length / PENDING_PAGE_SIZE) > 1 && (
+            <div className="border-t border-gray-100 pt-2">
+              <Pagination
+                currentPage={pendingPage}
+                totalPages={Math.ceil(pending.length / PENDING_PAGE_SIZE)}
+                onPageChange={setPendingPage}
+              />
+            </div>
+          )}
         </div>
       </main>
     </div>

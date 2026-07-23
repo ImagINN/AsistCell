@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
-import { Archive, ChevronDown, Star } from 'lucide-react';
+import { Archive, Star } from 'lucide-react';
 import api, { API_ORIGIN } from '../services/api';
 import Navbar from '../components/Navbar';
+import Pagination from '../components/Pagination';
 import { fetchUsersByIds, fullName, type DirectoryUser } from '../services/directory';
 import { CATEGORY_LABELS, PRIORITY_LABELS, STATUS_LABELS } from '../constants/tickets';
 
@@ -21,27 +22,28 @@ interface CompletedTicket {
   createdAt: string;
 }
 
-const PAGE_SIZE = 30;
+const PAGE_SIZE = 10;
 
 // Süpervizör/Admin: tamamlanan (KAPANDI/IPTAL) taleplerin log kayıtları.
 // Bir talep KAPANDI durumuna geçtiği an aktif ekranlardan düşer, buraya eklenir.
 const CompletedTickets: React.FC = () => {
   const [items, setItems] = useState<CompletedTicket[]>([]);
   const [total, setTotal] = useState(0);
-  const [skip, setSkip] = useState(0);
+  const [currentPage, setCurrentPage] = useState(0);
   const [loading, setLoading] = useState(false);
   const [names, setNames] = useState<Map<string, DirectoryUser>>(new Map());
 
-  const load = async (nextSkip: number, replace: boolean) => {
+  const load = async (page: number) => {
     setLoading(true);
     try {
-      const res = await api.get('/tickets/completed', { params: { take: PAGE_SIZE, skip: nextSkip } });
-      const nextItems: CompletedTicket[] = replace ? res.data.items : [...items, ...res.data.items];
-      setItems(nextItems);
+      const res = await api.get('/tickets/completed', {
+        params: { take: PAGE_SIZE, skip: page * PAGE_SIZE },
+      });
+      setItems(res.data.items);
       setTotal(res.data.total);
-      setSkip(nextSkip);
-      fetchUsersByIds(nextItems.flatMap((i) => [i.assignedAgentId, i.customerId])).then((resolved) =>
-        setNames((prev) => new Map([...prev, ...resolved])),
+      setCurrentPage(page);
+      fetchUsersByIds(res.data.items.flatMap((i: CompletedTicket) => [i.assignedAgentId, i.customerId])).then(
+        (resolved) => setNames((prev) => new Map([...prev, ...resolved])),
       );
     } finally {
       setLoading(false);
@@ -49,9 +51,9 @@ const CompletedTickets: React.FC = () => {
   };
 
   useEffect(() => {
-    load(0, true);
+    load(0);
 
-    // Bir talep KAPANDI'ya geçtiği anda listeyi tazele (en tepeye eklensin)
+    // Bir talep KAPANDI'ya geçtiği anda ilk sayfayı tazele
     const token = localStorage.getItem('access_token') || '';
     const socket: Socket = io(API_ORIGIN, {
       path: '/api/v1/tickets/socket.io',
@@ -59,13 +61,15 @@ const CompletedTickets: React.FC = () => {
       query: { jwt: token },
       auth: { token },
     });
-    socket.on('ticket_completed', () => load(0, true));
+    socket.on('ticket_completed', () => load(0));
 
     return () => {
       socket.disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const totalPages = Math.ceil(total / PAGE_SIZE);
 
   return (
     <div className="min-h-screen bg-brand-surface">
@@ -81,14 +85,23 @@ const CompletedTickets: React.FC = () => {
               Kapatılan talepler burada log olarak tutulur ve aktif ekranlardan otomatik kaldırılır.
             </p>
           </div>
-          <span className="bg-brand-primary text-white text-xs font-bold px-3 py-1 rounded-full">
-            {total} kayıt
-          </span>
+          <div className="flex items-center gap-3">
+            {totalPages > 1 && (
+              <span className="text-xs text-gray-500">
+                {currentPage * PAGE_SIZE + 1}–{Math.min((currentPage + 1) * PAGE_SIZE, total)} / {total}
+              </span>
+            )}
+            <span className="bg-brand-primary text-white text-xs font-bold px-3 py-1 rounded-full">
+              {total} kayıt
+            </span>
+          </div>
         </div>
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden animate-fade-in">
           <div className="divide-y divide-gray-100">
-            {items.length === 0 ? (
+            {loading ? (
+              <p className="p-8 text-center text-gray-400">Yükleniyor...</p>
+            ) : items.length === 0 ? (
               <p className="p-8 text-center text-gray-500">Henüz tamamlanan talep yok.</p>
             ) : (
               items.map((t) => (
@@ -114,11 +127,13 @@ const CompletedTickets: React.FC = () => {
                         <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" /> {t.rating}
                       </span>
                     )}
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium border ${
-                      t.status === 'KAPANDI'
-                        ? 'bg-gray-100 text-gray-700 border-gray-300'
-                        : 'bg-gray-100 text-gray-500 border-gray-300'
-                    }`}>
+                    <span
+                      className={`px-3 py-1 rounded-full text-xs font-medium border ${
+                        t.status === 'KAPANDI'
+                          ? 'bg-gray-100 text-gray-700 border-gray-300'
+                          : 'bg-gray-100 text-gray-500 border-gray-300'
+                      }`}
+                    >
                       {STATUS_LABELS[t.status] ?? t.status}
                     </span>
                     <span className="text-xs text-gray-400 whitespace-nowrap">
@@ -130,16 +145,13 @@ const CompletedTickets: React.FC = () => {
             )}
           </div>
 
-          {items.length < total && (
-            <div className="p-4 text-center border-t border-gray-100">
-              <button
-                onClick={() => load(skip + PAGE_SIZE, false)}
-                disabled={loading}
-                className="inline-flex items-center gap-1.5 text-sm text-brand-primary hover:underline disabled:opacity-50"
-              >
-                <ChevronDown className="w-4 h-4" />
-                {loading ? 'Yükleniyor...' : 'Daha fazla göster'}
-              </button>
+          {totalPages > 1 && (
+            <div className="border-t border-gray-100 px-6">
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={load}
+              />
             </div>
           )}
         </div>

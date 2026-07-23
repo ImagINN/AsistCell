@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import { ChevronRight, Frown, Meh, Smile } from 'lucide-react';
 import api, { API_ORIGIN } from '../services/api';
+import Pagination from './Pagination';
 import { useAuth } from '../contexts/AuthContext';
 import { CATEGORY_LABELS, PRIORITY_LABELS, STATUS_LABELS, SENTIMENT_LABELS, SENTIMENT_COLORS } from '../constants/tickets';
 
@@ -39,11 +40,14 @@ const formatRemaining = (ms: number) => {
   return hours > 0 ? `${hours}sa ${minutes}dk` : `${minutes}dk`;
 };
 
+const PAGE_SIZE = 10;
+
 const TicketsList: React.FC = () => {
   const { user } = useAuth();
   const isCustomer = user?.role === 'USER';
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [now, setNow] = useState(Date.now());
+  const [currentPage, setCurrentPage] = useState(0);
 
   // Kalan SLA süresi sayacı — 30 saniyede bir tazelenir
   useEffect(() => {
@@ -115,6 +119,18 @@ const TicketsList: React.FC = () => {
     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
 
+  const totalPages = Math.ceil(sortedTickets.length / PAGE_SIZE);
+  const pagedTickets = sortedTickets.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
+
+  // Yeni talep gelince/ticket sayısı değişince sayfayı sıfırla
+  const prevLengthRef = React.useRef(tickets.length);
+  React.useEffect(() => {
+    if (tickets.length !== prevLengthRef.current) {
+      setCurrentPage(0);
+      prevLengthRef.current = tickets.length;
+    }
+  }, [tickets.length]);
+
   const slaChip = (ticket: Ticket) => {
     if (!ticket.slaDeadline) return null;
     const deadline = new Date(ticket.slaDeadline).getTime();
@@ -157,16 +173,23 @@ const TicketsList: React.FC = () => {
         <h2 className="text-lg font-semibold text-gray-800">
           {isCustomer ? 'Taleplerim' : 'Aktif Talepler'}
         </h2>
-        <span className="bg-brand-primary text-white text-xs font-bold px-3 py-1 rounded-full">
-          {tickets.length} Toplam
-        </span>
+        <div className="flex items-center gap-3">
+          {totalPages > 1 && (
+            <span className="text-xs text-gray-500">
+              {currentPage * PAGE_SIZE + 1}–{Math.min((currentPage + 1) * PAGE_SIZE, tickets.length)} / {tickets.length}
+            </span>
+          )}
+          <span className="bg-brand-primary text-white text-xs font-bold px-3 py-1 rounded-full">
+            {tickets.length} Toplam
+          </span>
+        </div>
       </div>
 
       <div className="divide-y divide-gray-100">
         {tickets.length === 0 ? (
           <p className="p-8 text-center text-gray-500">Henüz talep bulunmuyor.</p>
         ) : (
-          sortedTickets.map((ticket) => (
+          pagedTickets.map((ticket) => (
             <Link
               to={`/tickets/${ticket.ticketNumber}`}
               key={ticket.ticketNumber}
@@ -227,6 +250,15 @@ const TicketsList: React.FC = () => {
           ))
         )}
       </div>
+      {totalPages > 1 && (
+        <div className="border-t border-gray-100 px-6">
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+          />
+        </div>
+      )}
     </div>
   );
 };
