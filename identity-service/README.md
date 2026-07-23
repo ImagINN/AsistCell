@@ -12,10 +12,17 @@ audit log kaydı bu serviste yapılır.
 - Admin tarafından kullanıcı listeleme, oluşturma ve rol değiştirme
 - Audit log tutulması ve listelenmesi
 - İlk kurulumda `.env` üzerinden tanımlı bir ADMIN hesabının otomatik seed edilmesi
+- TEMSILCI hesabı oluşturulduğunda/güncellendiğinde/rolü değiştiğinde AI Service'in
+  atama havuzunu senkron tutma (`/api/v1/ai/agents` çağrısı)
 
-Bu servis başka hiçbir servise (ne REST ne de RabbitMQ ile) bağımlı değildir ve
-kendisi de başka bir servisle mesajlaşmaz — diğer servisler, gelen isteklerdeki
-JWT'yi (Kong üzerinden) doğrulayarak kimlik bilgisine erişir.
+Bu servis RabbitMQ ile hiçbir mesajlaşma yapmaz (ne yayınlar ne tüketir) — diğer
+servisler, gelen isteklerdeki JWT'yi (Kong üzerinden) doğrulayarak kimlik bilgisine
+erişir. Tek dış bağımlılığı, TEMSILCI hesap değişikliklerini AI Service'in atama
+havuzuna senkron eden **senkron, fire-and-forget REST çağrısıdır**
+(`POST/PATCH {AI_SERVICE_URL}/api/v1/ai/agents[/…]`) — AI Service kapalıysa hesap
+işlemleri etkilenmez, sadece atama havuzu bir sonraki senkrona kadar güncel kalmaz.
+Ayrıca ticket-service'ten gelen `x-internal-key` korumalı audit yazımlarını
+(`POST /internal/audit`) kabul eder.
 
 ## Teknoloji
 
