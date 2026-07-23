@@ -78,6 +78,11 @@ class RabbitMQClient:
                     await self.handle_category_changed(data)
                     return
 
+                # Müşteri puanı → temsilcinin performans skorunu (ort. puan/5) günceller
+                if pattern == "ticket.rated":
+                    await self.handle_ticket_rated(data)
+                    return
+
                 if pattern != "ticket.created":
                     logger.warning(f"Ignoring unknown pattern: {pattern}")
                     return
@@ -153,7 +158,10 @@ class RabbitMQClient:
             )
 
     async def handle_ticket_released(self, data: dict):
-        """Ticket kapandığında (COZULDU/IPTAL) temsilcinin aktif ticket sayısını azaltır."""
+        """Ticket kapandığında (COZULDU/IPTAL) temsilcinin aktif ticket sayısını azaltır.
+        Ardından kapasite açıldığı için, kapasitesizlik yüzünden manuel kuyrukta
+        bekleyen (kategorisi belirli ama atanamamış) talepleri tekrar atamayı dener
+        (spec: "kapasite açıldığında atanır")."""
         # Circular import'u önlemek için lazy import
         from sqlalchemy import select
         from app.models.agent import Agent
@@ -177,6 +185,49 @@ class RabbitMQClient:
             logger.info(
                 f"Released capacity for agent {agent_id} "
                 f"(ticket {data.get('ticketId')}, active={agent.active_ticket_count})"
+            )
+
+        async with AsyncSessionLocal() as session:
+            newly_assigned = await analysis_service.try_assign_queued_tickets(session)
+
+        for log in newly_assigned:
+            await self.publish_analyzed_ticket({
+                "ticketId": log.ticket_id,
+                "category": log.category,
+                "confidence": log.confidence,
+                "sentiment": log.sentiment,
+                "priority": log.priority,
+                "assignedAgentId": log.assigned_agent_id,
+            })
+
+    async def handle_ticket_rated(self, data: dict):
+        """Müşteri puanı geldiğinde temsilcinin ortalama puanını (ve dolayısıyla
+        skorlama formülündeki performans bileşenini) günceller."""
+        from sqlalchemy import select
+        from app.models.agent import Agent
+
+        agent_id = data.get("agentId")
+        rating = data.get("rating")
+        if not agent_id or rating is None:
+            logger.warning(f"ticket.rated with missing fields: {data}")
+            return
+
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(select(Agent).where(Agent.id == agent_id))
+            agent = result.scalars().first()
+
+            if not agent:
+                logger.warning(f"ticket.rated for unknown agent {agent_id}")
+                return
+
+            new_count = agent.rating_count + 1
+            agent.average_rating = (agent.average_rating * agent.rating_count + rating) / new_count
+            agent.rating_count = new_count
+            session.add(agent)
+            await session.commit()
+            logger.info(
+                f"Agent {agent_id} average_rating updated to {agent.average_rating:.2f} "
+                f"(rating_count={new_count})"
             )
 
     async def start_consuming(self):

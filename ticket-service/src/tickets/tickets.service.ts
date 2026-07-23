@@ -337,10 +337,16 @@ export class TicketsService implements OnModuleInit, OnModuleDestroy {
       throw new ConflictException('Bu talep zaten puanlanmış; puan değiştirilemez');
     }
 
-    // Gamification'a müşteri memnuniyet eventi
     if (updated.assignedAgentId) {
+      // Gamification'a müşteri memnuniyet eventi
       this.gamificationClient.emit('ticket.rated', {
         ticketId: updated.ticketNumber,
+        agentId: updated.assignedAgentId,
+        rating: dto.rating,
+      });
+      // AI servisine de iletilir: akıllı atama formülündeki "performans"
+      // bileşeni (ortalama müşteri puanı / 5) bu eventle güncellenir
+      this.aiClient.emit('ticket.rated', {
         agentId: updated.assignedAgentId,
         rating: dto.rating,
       });

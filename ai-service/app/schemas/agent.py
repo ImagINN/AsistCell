@@ -25,6 +25,8 @@ class AgentUpdate(BaseModel):
 class AgentResponse(AgentBase):
     id: str
     active_ticket_count: int
+    average_rating: float
+    rating_count: int
     is_active: bool
     created_at: datetime
     updated_at: Optional[datetime]

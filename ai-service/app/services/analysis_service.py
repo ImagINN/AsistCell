@@ -1,4 +1,6 @@
 import logging
+from typing import List
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
 
@@ -121,7 +123,48 @@ class AnalysisService:
         db.add(log_entry)
         
         await db.commit()
-        
+
         return result
+
+    # Spec: "Hiçbir temsilcide kapasite yoksa talep kuyruğa alınır ve kapasite
+    # açıldığında atanır." Bir temsilcinin kapasitesi boşaldığında (ticket.released)
+    # çağrılır; kategorisi güvenle belirlenmiş ama atanamamış talepleri FIFO
+    # sırayla tekrar atamayı dener. Ticket-service tarafı idempotent olduğu için
+    # (zaten atanmış/kapanmış talepte no-op) güvenli şekilde tekrar denenebilir.
+    async def try_assign_queued_tickets(self, db: AsyncSession) -> List[AnalysisLog]:
+        result = await db.execute(
+            select(AnalysisLog)
+            .where(
+                AnalysisLog.manual_queue == True,
+                AnalysisLog.assigned_agent_id.is_(None),
+                AnalysisLog.category != "BELIRSIZ",
+            )
+            .order_by(AnalysisLog.created_at.asc())
+        )
+        queued = result.scalars().all()
+        newly_assigned: List[AnalysisLog] = []
+
+        for log in queued:
+            agent = await assignment_service.get_best_agent(db, log.category)
+            if not agent:
+                # Bu kategori için hâlâ kapasite yok — sıradaki bekleyen talebe geç
+                continue
+
+            agent.active_ticket_count += 1
+            db.add(agent)
+
+            log.assigned_agent_id = agent.id
+            log.manual_queue = False
+            db.add(log)
+
+            await db.commit()
+            await db.refresh(log)
+            newly_assigned.append(log)
+            logger.info(
+                f"Queued ticket {log.ticket_id} auto-assigned to agent {agent.id} "
+                f"after capacity freed up"
+            )
+
+        return newly_assigned
 
 analysis_service = AnalysisService()
