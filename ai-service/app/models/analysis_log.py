@@ -23,4 +23,9 @@ class AnalysisLog(Base):
     fallback_used = Column(Boolean, default=False, nullable=False)
     fallback_reason = Column(String, nullable=True)
     
+    # Personel kategori düzeltmesi (doğruluk metriği)
+    corrected_category = Column(String, nullable=True)
+    corrected_by_role = Column(String, nullable=True)
+    corrected_at = Column(DateTime(timezone=True), nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())

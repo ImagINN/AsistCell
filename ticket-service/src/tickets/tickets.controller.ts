@@ -8,6 +8,7 @@ import { RateTicketDto } from './dto/rate-ticket.dto';
 import { AssignTicketDto } from './dto/assign-ticket.dto';
 import { ListTicketsQueryDto } from './dto/list-tickets-query.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
+import { UpdatePriorityDto } from './dto/update-priority.dto';
 import { MessageRole, UserRole, isStaff } from '../common/enums';
 import { JwtAuthGuard, JwtUser } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -64,6 +65,40 @@ export class TicketsController {
       this.auditClient.deny(user, 'DASHBOARD_VIEW', 'Dashboard yalnızca süpervizör ve admin tarafından görüntülenebilir');
     }
     return this.ticketsService.getDashboardStats();
+  }
+
+  // Takım performans tablosu: temsilci bazlı çözülen talep, ortalama puan, SLA uyumu
+  @Get('stats/team')
+  getTeamPerformance(@CurrentUser() user: JwtUser) {
+    if (user.role !== UserRole.SUPERVIZOR && user.role !== UserRole.ADMIN) {
+      this.auditClient.deny(user, 'DASHBOARD_VIEW', 'Takım performansı yalnızca süpervizör ve admin tarafından görüntülenebilir');
+    }
+    return this.ticketsService.getTeamPerformance();
+  }
+
+  // Tamamlanan talepler log ekranı (KAPANDI/IPTAL) — Süpervizör/Admin
+  @Get('completed')
+  getCompleted(
+    @CurrentUser() user: JwtUser,
+    @Query('take') take?: string,
+    @Query('skip') skip?: string,
+  ) {
+    if (user.role !== UserRole.SUPERVIZOR && user.role !== UserRole.ADMIN) {
+      this.auditClient.deny(user, 'COMPLETED_TICKETS_VIEW', 'Tamamlanan talepler log ekranı yalnızca süpervizör ve admin tarafından görüntülenebilir');
+    }
+    return this.ticketsService.getCompletedTickets(
+      take ? parseInt(take, 10) : undefined,
+      skip ? parseInt(skip, 10) : undefined,
+    );
+  }
+
+  // Otomatik atama akışı (AI'ın uzmanlık eşleştirmesiyle yaptığı atamalar) — Süpervizör/Admin
+  @Get('auto-assignments')
+  getAutoAssignments(@CurrentUser() user: JwtUser, @Query('take') take?: string) {
+    if (user.role !== UserRole.SUPERVIZOR && user.role !== UserRole.ADMIN) {
+      this.auditClient.deny(user, 'AUTO_ASSIGNMENTS_VIEW', 'Otomatik atama akışı yalnızca süpervizör ve admin tarafından görüntülenebilir');
+    }
+    return this.ticketsService.getAutoAssignments(take ? parseInt(take, 10) : undefined);
   }
 
   // Müşteri kendi taleplerini listeler; SUPERVIZOR/ADMIN herhangi bir müşterininkini görebilir
@@ -123,6 +158,16 @@ export class TicketsController {
     return this.ticketsService.updateCategory(ticketNumber, dto, user);
   }
 
+  // Öncelik değiştirme — yalnızca SUPERVIZOR (matris kontrolü serviste)
+  @Patch(':ticketNumber/priority')
+  updatePriority(
+    @Param('ticketNumber') ticketNumber: string,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: UpdatePriorityDto,
+  ) {
+    return this.ticketsService.updatePriority(ticketNumber, dto, user);
+  }
+
   // Çözüm puanlama — sadece talep sahibi müşteri
   @Post(':ticketNumber/rating')
   rate(
@@ -133,14 +178,28 @@ export class TicketsController {
     return this.ticketsService.rateTicket(ticketNumber, dto, user.sub);
   }
 
+  // Mesaj gönderme — yalnızca talep sahibi müşteri ve atanan temsilci (kontrol serviste)
   @Post(':ticketNumber/messages')
   addMessage(
     @Param('ticketNumber') ticketNumber: string,
     @CurrentUser() user: JwtUser,
     @Body() dto: AddMessageDto
   ) {
-    const senderRole = isStaff(user.role) ? MessageRole.TEMSILCI : MessageRole.MUSTERI;
-    return this.ticketsService.addMessage(ticketNumber, dto, user.sub, senderRole);
+    return this.ticketsService.addMessage(ticketNumber, dto, user);
+  }
+
+  // Mesaj thread'i — kronolojik sırayla. Görüntüleme kuralları findOne ile aynı:
+  // müşteri kendi talebini, temsilci kendine atananı, SUPERVIZOR/ADMIN hepsini görür.
+  @Get(':ticketNumber/messages')
+  async getMessages(@CurrentUser() user: JwtUser, @Param('ticketNumber') ticketNumber: string) {
+    const ticket = await this.ticketsService.findOne(ticketNumber);
+    if (user.role === UserRole.USER && ticket.customerId !== user.sub) {
+      this.auditClient.deny(user, 'TICKET_MESSAGES_VIEW', 'Yalnızca kendi taleplerinizin mesajlarını görüntüleyebilirsiniz', { ticketNumber });
+    }
+    if (user.role === UserRole.TEMSILCI && ticket.assignedAgentId !== user.sub) {
+      this.auditClient.deny(user, 'TICKET_MESSAGES_VIEW', 'Yalnızca size atanan taleplerin mesajlarını görüntüleyebilirsiniz', { ticketNumber });
+    }
+    return this.ticketsService.getMessages(ticketNumber);
   }
 
   // --- RabbitMQ Event Listeners ---

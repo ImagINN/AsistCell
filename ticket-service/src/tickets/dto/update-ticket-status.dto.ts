@@ -1,11 +1,12 @@
-import { IsEnum, IsOptional, IsString, ValidateIf } from 'class-validator';
+import { IsEnum, IsOptional, IsString } from 'class-validator';
 import { TicketStatus } from '../../common/enums';
 
 export class UpdateTicketStatusDto {
-  @IsEnum(TicketStatus)
+  @IsEnum(TicketStatus, { message: 'Geçersiz talep durumu' })
   status: TicketStatus;
 
-  @ValidateIf(o => o.status === TicketStatus.COZULDU)
-  @IsString()
+  // COZULDU geçişinde zorunluluğu servis katmanı denetler (koşul ihlali: 422)
+  @IsOptional()
+  @IsString({ message: 'Çözüm notu metin olmalıdır' })
   resolutionNote?: string;
 }

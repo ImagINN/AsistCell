@@ -3,6 +3,7 @@ import { Role, User } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { AiAgentClient } from '../common/ai-agent.client';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 
@@ -29,6 +30,7 @@ export class UsersService {
   constructor(
     private prisma: PrismaService,
     private audit: AuditService,
+    private aiAgent: AiAgentClient,
   ) {}
 
   // Admin'in rolüyle birlikte hesap oluşturması (temsilci/süpervizör)
@@ -64,6 +66,11 @@ export class UsersService {
       detail: { email: user.email, role: user.role, specialties: user.specialties },
     });
 
+    // Temsilciler AI atama havuzuna eklenir (uzmanlıklarıyla birlikte)
+    if (user.role === Role.TEMSILCI) {
+      this.aiAgent.syncAgent(user);
+    }
+
     return user;
   }
 
@@ -72,6 +79,28 @@ export class UsersService {
     return this.prisma.user.findMany({
       select: USER_SELECT,
       orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  // Diğer servislerin (ticket/gamification) UI'da ID yerine isim+rol göstermesi
+  // için minimal, hassas veri içermeyen dizin. Herhangi bir kimliği doğrulanmış
+  // kullanıcı erişebilir — e-posta/GSM/şifre gibi alanlar döndürülmez.
+  async findDirectory(ids?: string[], role?: Role, specialty?: string) {
+    const where: Record<string, unknown> = {};
+    if (ids?.length) where.id = { in: ids };
+    if (role) where.role = role;
+    if (specialty) where.specialties = { has: specialty };
+
+    return this.prisma.user.findMany({
+      where,
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        specialties: true,
+      },
+      orderBy: { firstName: 'asc' },
     });
   }
 
@@ -119,6 +148,13 @@ export class UsersService {
       success: true,
       detail: { email: updated.email, from: before.role, to: role },
     });
+
+    // AI atama havuzunu rol değişikliğiyle senkron tut
+    if (role === Role.TEMSILCI) {
+      this.aiAgent.syncAgent(updated);
+    } else if (before.role === Role.TEMSILCI) {
+      this.aiAgent.deactivateAgent(id);
+    }
 
     return updated;
   }

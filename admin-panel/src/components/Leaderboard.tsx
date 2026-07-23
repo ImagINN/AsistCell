@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import api from '../services/api';
 import { Trophy } from 'lucide-react';
+import { fetchUsersByIds, fullName, type DirectoryUser } from '../services/directory';
 
 interface LeaderboardEntry {
   agentId: string;
@@ -11,17 +12,19 @@ interface LeaderboardEntry {
 const Leaderboard: React.FC = () => {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'all_time'>('daily');
+  const [names, setNames] = useState<Map<string, DirectoryUser>>(new Map());
 
   useEffect(() => {
     const fetchLeaderboard = async () => {
       try {
         const response = await api.get(`/game/leaderboard?period=${period}&top=10`);
         setEntries(response.data);
+        setNames(await fetchUsersByIds(response.data.map((e: LeaderboardEntry) => e.agentId)));
       } catch (error) {
         console.error('Leaderboard getirilemedi:', error);
       }
     };
-    
+
     fetchLeaderboard();
   }, [period]);
 
@@ -62,7 +65,7 @@ const Leaderboard: React.FC = () => {
                   #{index + 1}
                 </div>
                 <div>
-                  <h4 className="font-medium text-gray-900">{entry.agentId}</h4>
+                  <h4 className="font-medium text-gray-900">{fullName(names.get(entry.agentId)) ?? entry.agentId}</h4>
                   <p className="text-xs text-gray-500">Temsilci</p>
                 </div>
               </div>

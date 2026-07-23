@@ -48,6 +48,19 @@ export class UsersController {
     return this.usersService.findAll();
   }
 
+  // GET /api/v1/auth/directory  (herhangi bir kimliği doğrulanmış kullanıcı)
+  // UI'da ID yerine isim+rol göstermek için minimal dizin. ?ids=a,b,c veya ?role=TEMSILCI
+  @Get('directory')
+  @HttpCode(HttpStatus.OK)
+  getDirectory(
+    @Query('ids') ids?: string,
+    @Query('role') role?: Role,
+    @Query('specialty') specialty?: string,
+  ) {
+    const idList = ids ? ids.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
+    return this.usersService.findDirectory(idList, role, specialty);
+  }
+
   // POST /api/v1/auth/users  (Admin only) — rolüyle birlikte hesap oluşturma
   @Post('users')
   @Roles(Role.ADMIN)
@@ -82,10 +95,16 @@ export class UsersController {
   getAuditLogs(
     @Query('take') take?: string,
     @Query('skip') skip?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortOrder') sortOrder?: string,
+    @Query('search') search?: string,
   ) {
     return this.auditService.findAll(
       take ? parseInt(take, 10) : 50,
       skip ? parseInt(skip, 10) : 0,
+      sortBy,
+      sortOrder === 'asc' ? 'asc' : 'desc',
+      search,
     );
   }
 }

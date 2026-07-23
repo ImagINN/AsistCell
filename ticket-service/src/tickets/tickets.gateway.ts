@@ -74,4 +74,27 @@ export class TicketsGateway implements OnGatewayConnection, OnGatewayDisconnect 
       this.server.to(`user_${ticket.assignedAgentId}`).emit('new_message', { ticketId: ticket.ticketNumber, message });
     }
   }
+
+  // AI'ın otomatik atama yaptığı an — süpervizör/admin panelindeki canlı akış için.
+  // ticket_updated ile de bilgi geçer, ama bu event'i ayrı tutmak (yalnızca gerçek
+  // otomatik atama anında tetiklenir) akışın diğer güncellemelerle gürültülenmesini önler.
+  notifyAutoAssignment(ticket: any) {
+    this.server.emit('auto_assignment', {
+      ticketNumber: ticket.ticketNumber,
+      title: ticket.title,
+      category: ticket.category,
+      priority: ticket.priority,
+      confidence: ticket.aiConfidence,
+      assignedAgentId: ticket.assignedAgentId,
+      assignedAt: ticket.aiAssignedAt,
+    });
+  }
+
+  // Talep tamamlandığında (KAPANDI) aktif ekranlardan anlık düşürülmesi için.
+  notifyTicketCompleted(ticket: any) {
+    this.server.emit('ticket_completed', {
+      ticketNumber: ticket.ticketNumber,
+      status: ticket.status,
+    });
+  }
 }

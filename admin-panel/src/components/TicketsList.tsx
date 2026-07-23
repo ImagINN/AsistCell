@@ -1,34 +1,78 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
+import { ChevronRight, Frown, Meh, Smile } from 'lucide-react';
 import api, { API_ORIGIN } from '../services/api';
+import Pagination from './Pagination';
+import { useAuth } from '../contexts/AuthContext';
+import { CATEGORY_LABELS, PRIORITY_LABELS, STATUS_LABELS, SENTIMENT_LABELS, SENTIMENT_COLORS } from '../constants/tickets';
 
 interface Ticket {
   ticketNumber: string;
   title: string;
   status: string;
   priority: string;
+  category?: string;
+  sentiment?: string;
   createdAt: string;
+  slaDeadline?: string;
+  resolvedAt?: string;
 }
 
+const SENTIMENT_ICONS: Record<string, React.ElementType> = {
+  OFKELI: Frown,
+  NOTR: Meh,
+  MEMNUN: Smile,
+};
+
+// SLA COZULDU/KAPANDI/IPTAL durumlarında durur
+const SLA_STOPPED_STATUSES = ['COZULDU', 'KAPANDI', 'IPTAL'];
+
+const isSlaStopped = (ticket: Ticket) => SLA_STOPPED_STATUSES.includes(ticket.status);
+
+const isSlaOverdue = (ticket: Ticket, now: number) =>
+  !!ticket.slaDeadline && !isSlaStopped(ticket) && now > new Date(ticket.slaDeadline).getTime();
+
+const formatRemaining = (ms: number) => {
+  const totalMinutes = Math.floor(Math.abs(ms) / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours > 0 ? `${hours}sa ${minutes}dk` : `${minutes}dk`;
+};
+
+const PAGE_SIZE = 10;
+
 const TicketsList: React.FC = () => {
+  const { user } = useAuth();
+  const isCustomer = user?.role === 'USER';
   const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [now, setNow] = useState(Date.now());
+  const [currentPage, setCurrentPage] = useState(0);
+
+  // Kalan SLA süresi sayacı — 30 saniyede bir tazelenir
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
-    // 1. Mevcut biletleri getir
+    if (!user?.id) return;
+
     const fetchTickets = async () => {
       try {
-        const response = await api.get('/tickets');
+        const response = isCustomer
+          ? await api.get(`/tickets/customer/${user.id}`)
+          : await api.get('/tickets');
         setTickets(response.data);
       } catch (error) {
-        console.error('Biletler yüklenemedi:', error);
+        console.error('Talepler yüklenemedi:', error);
       }
     };
-    
+
     fetchTickets();
 
-    // 2. Socket.IO bağlantısını kur
-    // jwt query parametresi Kong JWT plugin'i için, auth.token gateway'in
-    // kendi doğrulaması için gönderilir. Oda üyeliğini sunucu token'dan çözer.
+    // Socket.IO: jwt query parametresi Kong JWT plugin'i için, auth.token
+    // gateway'in kendi doğrulaması için gönderilir. Oda üyeliği token'dan çözülür.
     const token = localStorage.getItem('access_token') || '';
     const socket: Socket = io(API_ORIGIN, {
       path: '/api/v1/tickets/socket.io',
@@ -37,87 +81,184 @@ const TicketsList: React.FC = () => {
       auth: { token },
     });
 
-    socket.on('connect', () => {
-      console.log('Socket.IO bağlantısı başarılı:', socket.id);
-    });
-
-    // Gateway yeni talepleri tüm personele yayınlar
-    socket.on('new_ticket_arrived', (ticket: Ticket) => {
-      setTickets((prev) => [ticket, ...prev]);
-    });
-
-    // Durum/atama güncellemeleri (AI ataması dahil) genel yayından gelir
-    socket.on('ticket_updated', (ticket: Ticket) => {
-      setTickets((prev) => prev.map(t => t.ticketNumber === ticket.ticketNumber ? ticket : t));
-    });
+    if (!isCustomer) {
+      // Personel: gateway yeni talepleri tüm personele yayınlar
+      socket.on('new_ticket_arrived', (ticket: Ticket) => {
+        setTickets((prev) => [ticket, ...prev]);
+      });
+      // Genel yayından gelen durum/atama güncellemeleri (AI ataması dahil).
+      // Talep tamamlandıysa (KAPANDI/IPTAL) aktif listeden anlık kaldırılır —
+      // tamamlanan talepler log ekranına düşer (/log/completed-tickets).
+      socket.on('ticket_updated', (ticket: Ticket) => {
+        setTickets((prev) =>
+          ['KAPANDI', 'IPTAL'].includes(ticket.status)
+            ? prev.filter((t) => t.ticketNumber !== ticket.ticketNumber)
+            : prev.map((t) => (t.ticketNumber === ticket.ticketNumber ? ticket : t)),
+        );
+      });
+    } else {
+      // Müşteri: kendi talebine özel bildirimler
+      socket.on('ticket_created', (ticket: Ticket) => {
+        setTickets((prev) => [ticket, ...prev]);
+      });
+      socket.on('ticket_status_updated', (ticket: Ticket) => {
+        setTickets((prev) => prev.map((t) => (t.ticketNumber === ticket.ticketNumber ? ticket : t)));
+      });
+    }
 
     return () => {
       socket.disconnect();
     };
-  }, []);
+  }, [isCustomer, user?.id]);
 
-  const updateStatus = async (ticketNumber: string, status: string) => {
-    try {
-      await api.patch(`/tickets/${ticketNumber}/status`, { status });
-      // Başarılı olursa listeyi yenileyecek socket event'i de tetiklenecektir.
-    } catch (error) {
-      console.error('Durum güncellenemedi:', error);
-      alert('Durum güncellenemedi, state geçerli değil olabilir.');
+  // SLA aşan KRITIK talepler süpervizör panelinde en üstte görünür (spec 4.4)
+  const sortedTickets = [...tickets].sort((a, b) => {
+    const aTop = isSlaOverdue(a, now) && a.priority === 'KRITIK' ? 1 : 0;
+    const bTop = isSlaOverdue(b, now) && b.priority === 'KRITIK' ? 1 : 0;
+    if (aTop !== bTop) return bTop - aTop;
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
+
+  const totalPages = Math.ceil(sortedTickets.length / PAGE_SIZE);
+  const pagedTickets = sortedTickets.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
+
+  // Yeni talep gelince/ticket sayısı değişince sayfayı sıfırla
+  const prevLengthRef = React.useRef(tickets.length);
+  React.useEffect(() => {
+    if (tickets.length !== prevLengthRef.current) {
+      setCurrentPage(0);
+      prevLengthRef.current = tickets.length;
     }
+  }, [tickets.length]);
+
+  const slaChip = (ticket: Ticket) => {
+    if (!ticket.slaDeadline) return null;
+    const deadline = new Date(ticket.slaDeadline).getTime();
+
+    if (isSlaStopped(ticket)) {
+      const met = !ticket.resolvedAt || new Date(ticket.resolvedAt).getTime() <= deadline;
+      return (
+        <span className={`px-3 py-1 rounded-full text-xs font-medium border ${
+          met ? 'bg-green-50 text-green-700 border-green-200'
+              : 'bg-gray-100 text-gray-600 border-gray-300'
+        }`}>
+          {met ? 'SLA karşılandı' : 'SLA aşılarak kapandı'}
+        </span>
+      );
+    }
+
+    if (isSlaOverdue(ticket, now)) {
+      // Aşım: KRITIK kırmızı, YUKSEK turuncu, diğerleri görsel uyarı (spec 4.4)
+      const cls =
+        ticket.priority === 'KRITIK' ? 'bg-red-600 text-white border-red-700 animate-pulse' :
+        ticket.priority === 'YUKSEK' ? 'bg-orange-500 text-white border-orange-600' :
+        'bg-amber-100 text-amber-800 border-amber-300';
+      return (
+        <span className={`px-3 py-1 rounded-full text-xs font-bold border ${cls}`}>
+          SLA {formatRemaining(now - deadline)} aşıldı
+        </span>
+      );
+    }
+
+    return (
+      <span className="px-3 py-1 rounded-full text-xs font-medium border bg-emerald-50 text-emerald-700 border-emerald-200">
+        SLA: {formatRemaining(deadline - now)} kaldı
+      </span>
+    );
   };
 
   return (
     <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-100">
       <div className="p-6 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
-        <h2 className="text-lg font-semibold text-gray-800">Aktif Talepler</h2>
-        <span className="bg-brand-primary text-white text-xs font-bold px-3 py-1 rounded-full">
-          {tickets.length} Toplam
-        </span>
+        <h2 className="text-lg font-semibold text-gray-800">
+          {isCustomer ? 'Taleplerim' : 'Aktif Talepler'}
+        </h2>
+        <div className="flex items-center gap-3">
+          {totalPages > 1 && (
+            <span className="text-xs text-gray-500">
+              {currentPage * PAGE_SIZE + 1}–{Math.min((currentPage + 1) * PAGE_SIZE, tickets.length)} / {tickets.length}
+            </span>
+          )}
+          <span className="bg-brand-primary text-white text-xs font-bold px-3 py-1 rounded-full">
+            {tickets.length} Toplam
+          </span>
+        </div>
       </div>
-      
+
       <div className="divide-y divide-gray-100">
         {tickets.length === 0 ? (
           <p className="p-8 text-center text-gray-500">Henüz talep bulunmuyor.</p>
         ) : (
-          tickets.map((ticket) => (
-            <div key={ticket.ticketNumber} className="p-6 hover:bg-gray-50 transition-colors duration-150 flex items-center justify-between group">
-              <div>
-                <h3 className="font-medium text-gray-900 group-hover:text-brand-primary transition-colors">
+          pagedTickets.map((ticket) => (
+            <Link
+              to={`/tickets/${ticket.ticketNumber}`}
+              key={ticket.ticketNumber}
+              className={`p-6 hover:bg-gray-50 transition-colors duration-150 flex items-center justify-between group ${
+                isSlaOverdue(ticket, now)
+                  ? ticket.priority === 'KRITIK' ? 'bg-red-50 border-l-4 border-red-600'
+                  : ticket.priority === 'YUKSEK' ? 'bg-orange-50 border-l-4 border-orange-500'
+                  : 'bg-amber-50 border-l-4 border-amber-400'
+                  : ''
+              }`}
+            >
+              <div className="min-w-0">
+                <h3 className="font-medium text-gray-900 group-hover:text-brand-primary transition-colors truncate">
                   {ticket.title}
                 </h3>
-                <div className="mt-2 flex items-center gap-3 text-sm text-gray-500">
+                <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-gray-500">
                   <span className="font-mono bg-gray-100 px-2 py-0.5 rounded text-xs">{ticket.ticketNumber}</span>
                   <span>•</span>
-                  <span>Oluşturulma: {new Date(ticket.createdAt).toLocaleString('tr-TR')}</span>
+                  <span>{new Date(ticket.createdAt).toLocaleString('tr-TR')}</span>
+                  {ticket.category && (
+                    <>
+                      <span>•</span>
+                      <span>{CATEGORY_LABELS[ticket.category] ?? ticket.category}</span>
+                    </>
+                  )}
                 </div>
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-4 shrink-0">
+                {slaChip(ticket)}
+                {ticket.sentiment && (() => {
+                  const SentimentIcon = SENTIMENT_ICONS[ticket.sentiment] ?? Meh;
+                  const color = SENTIMENT_COLORS[ticket.sentiment] ?? '#64748B';
+                  return (
+                    <span
+                      className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium border"
+                      style={{ color, borderColor: color, backgroundColor: `${color}14` }}
+                      title={`Duygu tonu: ${SENTIMENT_LABELS[ticket.sentiment] ?? ticket.sentiment}`}
+                    >
+                      <SentimentIcon className="w-3.5 h-3.5" />
+                      {SENTIMENT_LABELS[ticket.sentiment] ?? ticket.sentiment}
+                    </span>
+                  );
+                })()}
                 <span className={`px-3 py-1 rounded-full text-xs font-medium border ${
                   ticket.priority === 'KRITIK' ? 'bg-red-50 text-red-700 border-red-200' :
                   ticket.priority === 'YUKSEK' ? 'bg-orange-50 text-orange-700 border-orange-200' :
                   ticket.priority === 'ORTA' ? 'bg-blue-50 text-blue-700 border-blue-200' :
                   'bg-gray-50 text-gray-700 border-gray-200'
                 }`}>
-                  {ticket.priority}
+                  {PRIORITY_LABELS[ticket.priority] ?? ticket.priority}
                 </span>
-                
-                <select 
-                  className="text-sm border-gray-300 rounded-lg shadow-sm focus:border-brand-primary focus:ring focus:ring-brand-primary focus:ring-opacity-50"
-                  value={ticket.status}
-                  onChange={(e) => updateStatus(ticket.ticketNumber, e.target.value)}
-                >
-                  <option value="YENI">Yeni</option>
-                  <option value="ATANDI">Atandı</option>
-                  <option value="ISLEMDE">İşlemde</option>
-                  <option value="MUSTERI_BEKLENIYOR">Müşteri Bekleniyor</option>
-                  <option value="COZULDU">Çözüldü</option>
-                  <option value="IPTAL">İptal</option>
-                </select>
+                <span className="px-3 py-1 rounded-full text-xs font-medium border bg-gray-50 text-gray-700 border-gray-200">
+                  {STATUS_LABELS[ticket.status] ?? ticket.status}
+                </span>
+                <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-brand-primary transition-colors" />
               </div>
-            </div>
+            </Link>
           ))
         )}
       </div>
+      {totalPages > 1 && (
+        <div className="border-t border-gray-100 px-6">
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+          />
+        </div>
+      )}
     </div>
   );
 };

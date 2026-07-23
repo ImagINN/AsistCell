@@ -1,6 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, SchemaTypes } from 'mongoose';
-import { TicketStatus, TicketPriority, MessageRole, TicketChannel } from '../../common/enums';
+import { TicketStatus, TicketPriority, TicketSentiment, MessageRole, TicketChannel } from '../../common/enums';
 
 @Schema({ timestamps: true })
 export class Message {
@@ -59,6 +59,10 @@ export class Ticket extends Document {
   @Prop({ type: Date })
   resolvedAt?: Date;
 
+  // Müşteri onayı veya 48 saat sonrası otomatik kapanış
+  @Prop({ type: Date })
+  closedAt?: Date;
+
   // Müşteri memnuniyet puanı (1-5), yalnızca COZULDU sonrası bir kez verilebilir
   @Prop({ type: Number, min: 1, max: 5 })
   rating?: number;
@@ -83,8 +87,24 @@ export class Ticket extends Document {
   @Prop({ type: String })
   aiCategory?: string;
 
+  // AI'ın talep metninden çıkardığı duygu tonu — temsilci ekranında renk/ikonla gösterilir
+  @Prop({ type: String, enum: TicketSentiment })
+  sentiment?: TicketSentiment;
+
   @Prop({ type: Boolean, default: false })
   categoryOverriddenAfterAi: boolean;
+
+  // Süpervizör önceliği manuel belirlediyse AI analizi bunu ezmez
+  @Prop({ type: Boolean, default: false })
+  priorityManuallySet: boolean;
+
+  // Otomatik atama izleme: Gemini'nin güven skoru ve atamanın yapıldığı an
+  // (canlı süpervizör/admin akışında ve atama log'unda gösterilir)
+  @Prop({ type: Number })
+  aiConfidence?: number;
+
+  @Prop({ type: Date })
+  aiAssignedAt?: Date;
 }
 export const TicketSchema = SchemaFactory.createForClass(Ticket);
 

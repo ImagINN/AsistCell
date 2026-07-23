@@ -46,8 +46,15 @@ export class AuthService {
   // ── OTP (simülasyon) ─────────────────────────────────────────
   // Gerçek entegrasyonda SMS sağlayıcısına istek atılır; simülasyonda
   // sabit kod (1234) kullanıldığı için yalnızca bilgilendirme döner.
-  requestOtp(gsmNumber: string): { message: string; gsmNumber: string } {
+  // Numara zaten kayıtlıysa kullanıcı OTP adımına geçmeden burada uyarılır.
+  async requestOtp(gsmNumber: string): Promise<{ message: string; gsmNumber: string }> {
     const normalized = normalizeGsm(gsmNumber);
+
+    const existing = await this.prisma.user.findUnique({ where: { gsmNumber: normalized } });
+    if (existing) {
+      throw new ConflictException('Bu GSM numarası ile kayıtlı bir hesap zaten var');
+    }
+
     this.logger.log(`OTP requested for ${normalized} (simulation)`);
     return {
       message: 'Doğrulama kodu GSM numaranıza gönderildi',

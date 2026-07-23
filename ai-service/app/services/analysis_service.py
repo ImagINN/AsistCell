@@ -1,10 +1,13 @@
 import logging
+from typing import List
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
 
 from app.schemas.analysis import AnalysisRequest, AnalysisResult
 from app.services.gemini_service import gemini_service
 from app.services.assignment_service import assignment_service
+from app.ml.local_classifier import local_classifier, rule_based_sentiment
 from app.models.analysis_log import AnalysisLog
 
 logger = logging.getLogger(__name__)
@@ -28,9 +31,10 @@ class AnalysisService:
             # 1. & 2. Kategori Sınıflandırma ve Duygu Analizi (Gemini)
             gemini_res = await gemini_service.analyze_ticket(request.title, request.description)
             
-            # Gelen veriyi güvenli al
+            # Gelen veriyi güvenli al — Gemini dış bir API olduğu için sayısal
+            # aralık burada zorunlu kılınır (spec: güven skoru 0.0-1.0)
             cat = gemini_res.get("category", "BELIRSIZ")
-            conf = float(gemini_res.get("confidence", 0.0))
+            conf = max(0.0, min(1.0, float(gemini_res.get("confidence", 0.0))))
             sent = gemini_res.get("sentiment", "NOTR")
             
             # Validasyon
@@ -57,17 +61,43 @@ class AnalysisService:
                 result.priority = "ORTA" # Default öncelik
                 
         except Exception as e:
-            # Fallback (Diskalifiye Koruması)
+            # Hibrit fallback: Gemini erişilemezse kendi veri setimizle eğitilmiş
+            # yerel model (TF-IDF + Logistic Regression) sınıflandırır; sentiment
+            # kural tabanlı belirlenir. Yerel model de yoksa BELIRSIZ + manuel kuyruk.
             logger.error(f"Fallback triggered for ticket {request.ticket_id} due to: {str(e)}")
             result.fallback_used = True
-            result.fallback_reason = str(e)
-            result.category = "BELIRSIZ"
-            result.manual_queue = True
-            result.priority = "ORTA"
+
+            # Kural tabanlı sentiment, eğitilmiş modele bağımlı değildir; kategori
+            # sınıflandırması için yerel model olmasa bile OFKELI tespiti ve
+            # önceliğin YUKSEK'e çekilmesi her zaman çalışmalıdır.
+            text = f"{request.title} {request.description}"
+            result.sentiment = rule_based_sentiment(text)
+            result.priority = "YUKSEK" if result.sentiment == "OFKELI" else "ORTA"
+
+            if local_classifier.available:
+                cat, conf = local_classifier.classify(text)
+                result.confidence = conf
+                # Ana akışla aynı kural: güven < 0.60 ise BELIRSIZ + manuel kuyruk
+                if conf < 0.60:
+                    result.category = "BELIRSIZ"
+                    result.manual_queue = True
+                else:
+                    result.category = cat
+                    result.manual_queue = False
+                result.fallback_reason = f"gemini: {str(e)} | local_model kullanıldı (conf={conf:.2f})"
+                logger.info(
+                    f"Local model classified ticket {request.ticket_id}: "
+                    f"{result.category} (conf={conf:.2f}, sentiment={result.sentiment})"
+                )
+            else:
+                result.fallback_reason = str(e)
+                result.category = "BELIRSIZ"
+                result.manual_queue = True
 
         # 3. Akıllı Temsilci Ataması
-        # Sadece kategorisi belli olanlar için atama yapıyoruz
-        if not result.manual_queue and not result.fallback_used:
+        # Kategorisi güvenle belirlenmiş talepler atanır (yerel model dahil);
+        # güven < 0.60 olanlar manuel atama kuyruğunda kalır.
+        if not result.manual_queue:
             agent = await assignment_service.get_best_agent(db, result.category)
             if agent:
                 result.assigned_agent_id = agent.id
@@ -93,7 +123,48 @@ class AnalysisService:
         db.add(log_entry)
         
         await db.commit()
-        
+
         return result
+
+    # Spec: "Hiçbir temsilcide kapasite yoksa talep kuyruğa alınır ve kapasite
+    # açıldığında atanır." Bir temsilcinin kapasitesi boşaldığında (ticket.released)
+    # çağrılır; kategorisi güvenle belirlenmiş ama atanamamış talepleri FIFO
+    # sırayla tekrar atamayı dener. Ticket-service tarafı idempotent olduğu için
+    # (zaten atanmış/kapanmış talepte no-op) güvenli şekilde tekrar denenebilir.
+    async def try_assign_queued_tickets(self, db: AsyncSession) -> List[AnalysisLog]:
+        result = await db.execute(
+            select(AnalysisLog)
+            .where(
+                AnalysisLog.manual_queue == True,
+                AnalysisLog.assigned_agent_id.is_(None),
+                AnalysisLog.category != "BELIRSIZ",
+            )
+            .order_by(AnalysisLog.created_at.asc())
+        )
+        queued = result.scalars().all()
+        newly_assigned: List[AnalysisLog] = []
+
+        for log in queued:
+            agent = await assignment_service.get_best_agent(db, log.category)
+            if not agent:
+                # Bu kategori için hâlâ kapasite yok — sıradaki bekleyen talebe geç
+                continue
+
+            agent.active_ticket_count += 1
+            db.add(agent)
+
+            log.assigned_agent_id = agent.id
+            log.manual_queue = False
+            db.add(log)
+
+            await db.commit()
+            await db.refresh(log)
+            newly_assigned.append(log)
+            logger.info(
+                f"Queued ticket {log.ticket_id} auto-assigned to agent {agent.id} "
+                f"after capacity freed up"
+            )
+
+        return newly_assigned
 
 analysis_service = AnalysisService()

@@ -1,4 +1,14 @@
-import { Injectable, NotFoundException, ForbiddenException, Inject } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  UnprocessableEntityException,
+  ConflictException,
+  Inject,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { ClientProxy } from '@nestjs/microservices';
@@ -10,6 +20,7 @@ import { RateTicketDto } from './dto/rate-ticket.dto';
 import { AssignTicketDto } from './dto/assign-ticket.dto';
 import { ListTicketsQueryDto } from './dto/list-tickets-query.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
+import { UpdatePriorityDto } from './dto/update-priority.dto';
 import { TicketStatus, MessageRole, TicketPriority, UserRole, isStaff } from '../common/enums';
 import { StateMachineException } from '../common/exceptions/state-machine.exception';
 import { TicketsGateway } from './tickets.gateway';
@@ -17,7 +28,12 @@ import { AuditClient } from '../common/audit.client';
 import { JwtUser } from '../common/guards/jwt-auth.guard';
 
 @Injectable()
-export class TicketsService {
+export class TicketsService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(TicketsService.name);
+  // COZULDU sonrası müşteri onayı gelmezse sistemin otomatik kapatma süresi
+  private readonly AUTO_CLOSE_HOURS = Number(process.env.TICKET_AUTO_CLOSE_HOURS ?? 48);
+  private autoCloseTimer?: NodeJS.Timeout;
+
   constructor(
     @InjectModel(Ticket.name) private ticketModel: Model<Ticket>,
     private ticketsGateway: TicketsGateway,
@@ -26,36 +42,56 @@ export class TicketsService {
     @Inject('GAMIFICATION_SERVICE') private gamificationClient: ClientProxy,
   ) {}
 
-  // ================= State Machine =================
-  // Personel (TEMSILCI/SUPERVIZOR/ADMIN) geçişleri ile müşteri geçişleri ayrılır.
-  private isValidStatusTransition(current: TicketStatus, target: TicketStatus, role: string): boolean {
-    const staff = isStaff(role);
+  // ================= Otomatik Kapanış (Spec 4.2: COZULDU -> KAPANDI, Sistem, 48 saat) =================
+  onModuleInit() {
+    this.autoCloseTimer = setInterval(
+      () => this.autoCloseResolvedTickets().catch((err) => this.logger.error(`Auto-close failed: ${err.message}`)),
+      60_000,
+    );
+  }
 
-    // Opsiyonel: Her durumdan IPTAL edilebilir (Müşteri kendi talebini, personel her talebi)
-    if (target === TicketStatus.IPTAL) return true;
+  onModuleDestroy() {
+    if (this.autoCloseTimer) clearInterval(this.autoCloseTimer);
+  }
 
-    // Geri kalan tüm geçişler personel yetkisi gerektirir
-    if (!staff) {
-      // Müşteri yalnızca MUSTERI_BEKLENIYOR -> ISLEMDE tetikleyebilir (yanıt verdiğinde)
-      return current === TicketStatus.MUSTERI_BEKLENIYOR && target === TicketStatus.ISLEMDE;
+  async autoCloseResolvedTickets(): Promise<void> {
+    const cutoff = new Date(Date.now() - this.AUTO_CLOSE_HOURS * 60 * 60 * 1000);
+    const staleTickets = await this.ticketModel
+      .find({ status: TicketStatus.COZULDU, resolvedAt: { $lte: cutoff } })
+      .exec();
+
+    for (const ticket of staleTickets) {
+      ticket.status = TicketStatus.KAPANDI;
+      ticket.closedAt = new Date();
+      const updated = await ticket.save();
+      this.logger.log(`Ticket ${ticket.ticketNumber} auto-closed after ${this.AUTO_CLOSE_HOURS}h`);
+      this.ticketsGateway.notifyTicketStatusUpdated(ticket.customerId, updated);
+      this.ticketsGateway.notifyTicketCompleted(updated);
     }
+  }
 
-    // 1. YENI -> ATANDI (Sistem/Supervizor)
-    if (current === TicketStatus.YENI && target === TicketStatus.ATANDI) return true;
+  // ================= State Machine (Spec 4.2) =================
+  // İzinli geçişler ve kimin yapabileceği. Tabloda olmayan her geçiş 422 döner;
+  // geçiş tabloda olup aktör yanlışsa 403 + audit döner.
+  // MUSTERI_BEKLENIYOR -> ISLEMDE yalnızca Sistem'dir (müşteri mesaj yazınca
+  // otomatik tetiklenir, addMessage içinde); COZULDU -> KAPANDI müşteri onayı
+  // veya 48 saat sonunda otomatik kapanışla (autoCloseResolvedTickets) olur.
+  private static readonly TRANSITIONS: {
+    from: TicketStatus;
+    to: TicketStatus;
+    actors: Array<'SUPERVIZOR' | 'TEMSILCI' | 'MUSTERI' | 'SISTEM'>;
+  }[] = [
+    { from: TicketStatus.YENI, to: TicketStatus.ATANDI, actors: ['SUPERVIZOR', 'SISTEM'] },
+    { from: TicketStatus.ATANDI, to: TicketStatus.ISLEMDE, actors: ['TEMSILCI'] },
+    { from: TicketStatus.ISLEMDE, to: TicketStatus.MUSTERI_BEKLENIYOR, actors: ['TEMSILCI'] },
+    { from: TicketStatus.MUSTERI_BEKLENIYOR, to: TicketStatus.ISLEMDE, actors: ['SISTEM'] },
+    { from: TicketStatus.ISLEMDE, to: TicketStatus.COZULDU, actors: ['TEMSILCI'] },
+    { from: TicketStatus.COZULDU, to: TicketStatus.KAPANDI, actors: ['MUSTERI', 'SISTEM'] },
+    { from: TicketStatus.COZULDU, to: TicketStatus.ISLEMDE, actors: ['MUSTERI'] },
+  ];
 
-    // 2. ATANDI -> ISLEMDE (Temsilci)
-    if (current === TicketStatus.ATANDI && target === TicketStatus.ISLEMDE) return true;
-
-    // 3. ISLEMDE -> MUSTERI_BEKLENIYOR (Temsilci)
-    if (current === TicketStatus.ISLEMDE && target === TicketStatus.MUSTERI_BEKLENIYOR) return true;
-
-    // 4. MUSTERI_BEKLENIYOR -> ISLEMDE (Sistem/Müşteri)
-    if (current === TicketStatus.MUSTERI_BEKLENIYOR && target === TicketStatus.ISLEMDE) return true;
-
-    // 5. ISLEMDE -> COZULDU (Temsilci)
-    if (current === TicketStatus.ISLEMDE && target === TicketStatus.COZULDU) return true;
-
-    return false;
+  private findTransitionRule(from: TicketStatus, to: TicketStatus) {
+    return TicketsService.TRANSITIONS.find((r) => r.from === from && r.to === to);
   }
 
   // ================= Ticket Number (sıralı, çakışmasız) =================
@@ -95,12 +131,45 @@ export class TicketsService {
     return savedTicket;
   }
 
+  // Varsayılan olarak tamamlanmış talepler (KAPANDI/IPTAL) aktif ekranlarda
+  // gösterilmez — bunlar için ayrıca getCompletedTickets() kullanılır.
+  // Açıkça bir status filtresi verilirse (örn. ?status=KAPANDI) bu davranış geçersiz kılınır.
   async findAll(query: ListTicketsQueryDto = {}): Promise<Ticket[]> {
     const filter: Record<string, any> = {};
     if (query.assignedAgentId) filter.assignedAgentId = query.assignedAgentId;
-    if (query.status) filter.status = query.status;
     if (query.priority) filter.priority = query.priority;
+    if (query.category) filter.category = query.category;
+    if (query.status) {
+      filter.status = query.status;
+    } else {
+      filter.status = { $nin: [TicketStatus.KAPANDI, TicketStatus.IPTAL] };
+    }
     return this.ticketModel.find(filter).sort({ createdAt: -1 }).exec();
+  }
+
+  // Tamamlanan talepler log ekranı (Süpervizör/Admin) — kapanış zamanına göre sıralı
+  async getCompletedTickets(take = 50, skip = 0) {
+    const filter = { status: { $in: [TicketStatus.KAPANDI, TicketStatus.IPTAL] } };
+    const [items, total] = await Promise.all([
+      this.ticketModel
+        .find(filter)
+        .sort({ closedAt: -1, updatedAt: -1 })
+        .skip(skip)
+        .limit(Math.min(take, 200))
+        .exec(),
+      this.ticketModel.countDocuments(filter).exec(),
+    ]);
+    return { items, total, take, skip };
+  }
+
+  // AI'ın otomatik atadığı taleplerin canlı/geçmiş akışı (Süpervizör/Admin)
+  async getAutoAssignments(take = 20) {
+    return this.ticketModel
+      .find({ assignmentSource: 'AI' })
+      .sort({ aiAssignedAt: -1, updatedAt: -1 })
+      .limit(Math.min(take, 100))
+      .select('ticketNumber title category priority aiConfidence assignedAgentId aiAssignedAt status')
+      .exec();
   }
 
   async findByCustomer(customerId: string): Promise<Ticket[]> {
@@ -121,34 +190,65 @@ export class TicketsService {
     user: JwtUser,
   ): Promise<Ticket> {
     const ticket = await this.findOne(ticketNumber);
+    const target = updateDto.status;
 
-    // Yetki matrisi: durum değiştirme yalnızca TEMSILCI ve SUPERVIZOR.
-    // Temsilci sadece kendisine atanan talebin durumunu değiştirebilir.
-    if (user.role !== UserRole.TEMSILCI && user.role !== UserRole.SUPERVIZOR) {
-      this.auditClient.deny(user, 'TICKET_STATUS_UPDATE', 'Talep durumunu yalnızca temsilci veya süpervizör değiştirebilir', { ticketNumber });
-    }
-    if (user.role === UserRole.TEMSILCI && ticket.assignedAgentId !== user.sub) {
-      this.auditClient.deny(user, 'TICKET_STATUS_UPDATE', 'Yalnızca size atanan taleplerin durumunu değiştirebilirsiniz', { ticketNumber });
+    // 1) Geçiş spec tablosunda var mı? Yoksa 422.
+    const rule = this.findTransitionRule(ticket.status, target);
+    if (!rule) {
+      throw new StateMachineException(ticket.status, target);
     }
 
-    if (!this.isValidStatusTransition(ticket.status, updateDto.status, user.role)) {
-      throw new StateMachineException(ticket.status, updateDto.status);
+    // 2) Aktör kontrolü (geçiş bazında). Yanlış aktör: 403 + audit.
+    if (user.role === UserRole.USER) {
+      if (!rule.actors.includes('MUSTERI')) {
+        this.auditClient.deny(user, 'TICKET_STATUS_UPDATE', 'Bu durum geçişini müşteri yapamaz', { ticketNumber, from: ticket.status, to: target });
+      }
+      if (ticket.customerId !== user.sub) {
+        this.auditClient.deny(user, 'TICKET_STATUS_UPDATE', 'Yalnızca kendi talebiniz üzerinde işlem yapabilirsiniz', { ticketNumber });
+      }
+    } else if (user.role === UserRole.TEMSILCI) {
+      if (!rule.actors.includes('TEMSILCI')) {
+        this.auditClient.deny(user, 'TICKET_STATUS_UPDATE', 'Bu durum geçişini temsilci yapamaz', { ticketNumber, from: ticket.status, to: target });
+      }
+      if (ticket.assignedAgentId !== user.sub) {
+        this.auditClient.deny(user, 'TICKET_STATUS_UPDATE', 'Yalnızca size atanan taleplerin durumunu değiştirebilirsiniz', { ticketNumber });
+      }
+    } else if (user.role === UserRole.SUPERVIZOR) {
+      if (!rule.actors.includes('SUPERVIZOR')) {
+        this.auditClient.deny(user, 'TICKET_STATUS_UPDATE', 'Bu durum geçişini süpervizör yapamaz', { ticketNumber, from: ticket.status, to: target });
+      }
+    } else {
+      // ADMIN: yetki matrisi gereği durum değiştiremez
+      this.auditClient.deny(user, 'TICKET_STATUS_UPDATE', 'Talep durumunu yalnızca temsilci, süpervizör veya müşteri (onay/red) değiştirebilir', { ticketNumber });
+    }
+
+    // 3) Geçiş koşulları (koşul ihlali de kural dışı geçiş sayılır: 422)
+    if (target === TicketStatus.ATANDI && !ticket.assignedAgentId) {
+      throw new UnprocessableEntityException('ATANDI durumuna geçiş için önce temsilci belirlenmelidir');
+    }
+    if (target === TicketStatus.COZULDU && !updateDto.resolutionNote?.trim()) {
+      throw new UnprocessableEntityException('Çözüm notu zorunludur');
     }
 
     const previousStatus = ticket.status;
-    ticket.status = updateDto.status;
+    ticket.status = target;
 
-    if (updateDto.status === TicketStatus.COZULDU) {
+    if (target === TicketStatus.COZULDU) {
       ticket.resolvedAt = new Date();
-      if (updateDto.resolutionNote) {
-        ticket.resolutionNote = updateDto.resolutionNote;
-      }
+      ticket.resolutionNote = updateDto.resolutionNote;
+    }
+    if (target === TicketStatus.KAPANDI) {
+      ticket.closedAt = new Date();
     }
 
     const updated = await ticket.save();
 
-    // Kritik durum değişiklikleri (çözüm/iptal) merkezi audit log'a yazılır
-    if (updated.status === TicketStatus.COZULDU || updated.status === TicketStatus.IPTAL) {
+    // Kritik durum değişiklikleri (çözüm/kapanış/iptal) merkezi audit log'a yazılır
+    if (
+      updated.status === TicketStatus.COZULDU ||
+      updated.status === TicketStatus.KAPANDI ||
+      updated.status === TicketStatus.IPTAL
+    ) {
       this.auditClient.logEvent(user, 'TICKET_STATUS_CHANGED', updated.ticketNumber, {
         from: previousStatus,
         to: updated.status,
@@ -160,6 +260,9 @@ export class TicketsService {
 
     // WS Bildirimi
     this.ticketsGateway.notifyTicketStatusUpdated(ticket.customerId, updated);
+    if (updated.status === TicketStatus.KAPANDI || updated.status === TicketStatus.IPTAL) {
+      this.ticketsGateway.notifyTicketCompleted(updated);
+    }
 
     return updated;
   }
@@ -197,36 +300,59 @@ export class TicketsService {
   }
 
   // ================= Puanlama =================
-  // Yalnızca talep sahibi, yalnızca COZULDU durumunda ve bir kez puan verebilir.
+  // Yalnızca talep sahibi, yalnızca COZULDU/KAPANDI durumunda ve bir kez puan verebilir.
   async rateTicket(ticketNumber: string, dto: RateTicketDto, userId: string): Promise<Ticket> {
     const ticket = await this.findOne(ticketNumber);
 
     if (ticket.customerId !== userId) {
       throw new ForbiddenException('You can only rate your own tickets');
     }
-    if (ticket.status !== TicketStatus.COZULDU) {
-      throw new ForbiddenException('Only resolved tickets can be rated');
+    // Spec: puanlama yalnızca talep KAPANDI durumuna geçtikten sonra yapılabilir
+    if (ticket.status !== TicketStatus.KAPANDI) {
+      throw new ForbiddenException(
+        'Yalnızca kapatılmış (KAPANDI) talepler puanlanabilir',
+      );
     }
     if (ticket.rating) {
-      throw new ForbiddenException('This ticket has already been rated');
+      throw new ConflictException('Bu talep zaten puanlanmış; puan değiştirilemez');
     }
 
-    ticket.rating = dto.rating;
-    if (dto.comment) ticket.ratingComment = dto.comment;
-    ticket.ratedAt = new Date();
+    // Tek seferlik garanti: koşullu atomik güncelleme — eşzamanlı iki istek
+    // gelirse yalnızca biri kaydı yazabilir, diğeri 409 alır.
+    const updated = await this.ticketModel
+      .findOneAndUpdate(
+        { ticketNumber, rating: { $exists: false } },
+        {
+          $set: {
+            rating: dto.rating,
+            ...(dto.comment ? { ratingComment: dto.comment } : {}),
+            ratedAt: new Date(),
+          },
+        },
+        { new: true },
+      )
+      .exec();
 
-    const updated = await ticket.save();
+    if (!updated) {
+      throw new ConflictException('Bu talep zaten puanlanmış; puan değiştirilemez');
+    }
 
-    // Gamification'a müşteri memnuniyet eventi
-    if (ticket.assignedAgentId) {
+    if (updated.assignedAgentId) {
+      // Gamification'a müşteri memnuniyet eventi
       this.gamificationClient.emit('ticket.rated', {
-        ticketId: ticket.ticketNumber,
-        agentId: ticket.assignedAgentId,
+        ticketId: updated.ticketNumber,
+        agentId: updated.assignedAgentId,
+        rating: dto.rating,
+      });
+      // AI servisine de iletilir: akıllı atama formülündeki "performans"
+      // bileşeni (ortalama müşteri puanı / 5) bu eventle güncellenir
+      this.aiClient.emit('ticket.rated', {
+        agentId: updated.assignedAgentId,
         rating: dto.rating,
       });
     }
 
-    this.ticketsGateway.notifyTicketStatusUpdated(ticket.customerId, updated);
+    this.ticketsGateway.notifyTicketStatusUpdated(updated.customerId, updated);
 
     return updated;
   }
@@ -235,7 +361,11 @@ export class TicketsService {
   async assignTicket(ticketNumber: string, dto: AssignTicketDto): Promise<Ticket> {
     const ticket = await this.findOne(ticketNumber);
 
-    if (ticket.status === TicketStatus.COZULDU || ticket.status === TicketStatus.IPTAL) {
+    if (
+      ticket.status === TicketStatus.COZULDU ||
+      ticket.status === TicketStatus.KAPANDI ||
+      ticket.status === TicketStatus.IPTAL
+    ) {
       throw new ForbiddenException('Closed tickets cannot be assigned');
     }
 
@@ -271,7 +401,11 @@ export class TicketsService {
     if (user.role === UserRole.TEMSILCI && ticket.assignedAgentId !== user.sub) {
       this.auditClient.deny(user, 'TICKET_CATEGORY_UPDATE', 'Yalnızca size atanan taleplerin kategorisini değiştirebilirsiniz', { ticketNumber });
     }
-    if (ticket.status === TicketStatus.COZULDU || ticket.status === TicketStatus.IPTAL) {
+    if (
+      ticket.status === TicketStatus.COZULDU ||
+      ticket.status === TicketStatus.KAPANDI ||
+      ticket.status === TicketStatus.IPTAL
+    ) {
       throw new ForbiddenException('Kapatılmış taleplerin kategorisi değiştirilemez');
     }
 
@@ -280,6 +414,51 @@ export class TicketsService {
       ticket.categoryOverriddenAfterAi = true;
     }
     ticket.category = dto.category;
+
+    const updated = await ticket.save();
+
+    // Kategori değişikliği AI Service'e bildirilir (doğruluk metriği)
+    this.aiClient.emit('ticket.category_changed', {
+      ticketId: updated.ticketNumber,
+      aiCategory: updated.aiCategory ?? null,
+      newCategory: updated.category,
+      changedByRole: user.role,
+    });
+
+    this.ticketsGateway.notifyTicketStatusUpdated(ticket.customerId, updated);
+    return updated;
+  }
+
+  // Öncelik başına SLA süresi (saat) — spec 4.4
+  private static readonly SLA_HOURS: Record<TicketPriority, number> = {
+    [TicketPriority.KRITIK]: 1,
+    [TicketPriority.YUKSEK]: 4,
+    [TicketPriority.ORTA]: 24,
+    [TicketPriority.DUSUK]: 72,
+  };
+
+  // SLA süresi talep oluşturma anından itibaren sayılır
+  private slaDeadlineFor(ticket: Ticket): Date {
+    const hours = TicketsService.SLA_HOURS[ticket.priority as TicketPriority] ?? 24;
+    const deadline = new Date((ticket as any).createdAt ?? Date.now());
+    deadline.setHours(deadline.getHours() + hours);
+    return deadline;
+  }
+
+  // ================= Öncelik Değiştirme (Süpervizör) =================
+  async updatePriority(ticketNumber: string, dto: UpdatePriorityDto, user: JwtUser): Promise<Ticket> {
+    const ticket = await this.findOne(ticketNumber);
+
+    if (user.role !== UserRole.SUPERVIZOR) {
+      this.auditClient.deny(user, 'TICKET_PRIORITY_UPDATE', 'Önceliği yalnızca süpervizör değiştirebilir', { ticketNumber });
+    }
+    if (ticket.status === TicketStatus.COZULDU || ticket.status === TicketStatus.IPTAL) {
+      throw new ForbiddenException('Kapatılmış taleplerin önceliği değiştirilemez');
+    }
+
+    ticket.priority = dto.priority;
+    ticket.priorityManuallySet = true;
+    ticket.slaDeadline = this.slaDeadlineFor(ticket);
 
     const updated = await ticket.save();
     this.ticketsGateway.notifyTicketStatusUpdated(ticket.customerId, updated);
@@ -297,7 +476,7 @@ export class TicketsService {
       ]),
       // SLA uyumu: çözülen taleplerde resolvedAt <= slaDeadline oranı
       this.ticketModel.aggregate([
-        { $match: { status: TicketStatus.COZULDU, slaDeadline: { $ne: null } } },
+        { $match: { status: { $in: [TicketStatus.COZULDU, TicketStatus.KAPANDI] }, resolvedAt: { $ne: null }, slaDeadline: { $ne: null } } },
         {
           $group: {
             _id: null,
@@ -346,7 +525,10 @@ export class TicketsService {
     const priorityCounts = Object.fromEntries(byPriority.map((p) => [p._id, p.count]));
     const total = byStatus.reduce((sum, s) => sum + s.count, 0);
     const open =
-      total - (statusCounts[TicketStatus.COZULDU] ?? 0) - (statusCounts[TicketStatus.IPTAL] ?? 0);
+      total -
+      (statusCounts[TicketStatus.COZULDU] ?? 0) -
+      (statusCounts[TicketStatus.KAPANDI] ?? 0) -
+      (statusCounts[TicketStatus.IPTAL] ?? 0);
 
     const sla = slaAgg[0];
     const rating = ratingAgg[0];
@@ -372,16 +554,101 @@ export class TicketsService {
     };
   }
 
-  async addMessage(ticketNumber: string, dto: AddMessageDto, senderId: string, senderRole: MessageRole): Promise<Ticket> {
+  // Süpervizör dashboard'u: temsilci bazlı çözülen talep, ortalama müşteri puanı, SLA uyumu
+  async getTeamPerformance() {
+    const rows = await this.ticketModel.aggregate([
+      { $match: { assignedAgentId: { $ne: null } } },
+      {
+        $group: {
+          _id: '$assignedAgentId',
+          resolvedCount: {
+            $sum: { $cond: [{ $in: ['$status', [TicketStatus.COZULDU, TicketStatus.KAPANDI]] }, 1, 0] },
+          },
+          avgRating: { $avg: '$rating' },
+          slaEligible: {
+            $sum: {
+              $cond: [
+                { $and: [{ $in: ['$status', [TicketStatus.COZULDU, TicketStatus.KAPANDI]] }, { $ne: ['$resolvedAt', null] }] },
+                1,
+                0,
+              ],
+            },
+          },
+          slaMet: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $in: ['$status', [TicketStatus.COZULDU, TicketStatus.KAPANDI]] },
+                    { $ne: ['$resolvedAt', null] },
+                    { $lte: ['$resolvedAt', '$slaDeadline'] },
+                  ],
+                },
+                1,
+                0,
+              ],
+            },
+          },
+          // Ortalama çözüm süresi: resolvedAt - createdAt (ms) — yalnızca çözülmüş talepler
+          avgResolutionMs: {
+            $avg: {
+              $cond: [
+                {
+                  $and: [
+                    { $in: ['$status', [TicketStatus.COZULDU, TicketStatus.KAPANDI]] },
+                    { $ne: ['$resolvedAt', null] },
+                  ],
+                },
+                { $subtract: ['$resolvedAt', '$createdAt'] },
+                null,
+              ],
+            },
+          },
+        },
+      },
+      { $sort: { resolvedCount: -1 } },
+    ]);
+
+    return rows.map((r) => ({
+      agentId: r._id,
+      resolvedCount: r.resolvedCount,
+      avgRating: r.avgRating ?? null,
+      slaComplianceRate: r.slaEligible ? r.slaMet / r.slaEligible : null,
+      // ms → dakika, null korunur (henüz çözülmüş talep yoksa)
+      avgResolutionMinutes: r.avgResolutionMs != null ? Math.round(r.avgResolutionMs / 60000) : null,
+    }));
+  }
+
+  // ================= Talep İçi Mesajlaşma (Thread) =================
+  // Spec: yalnızca talep sahibi müşteri ile atanan temsilci mesajlaşabilir.
+  async addMessage(ticketNumber: string, dto: AddMessageDto, user: JwtUser): Promise<Ticket> {
     const ticket = await this.findOne(ticketNumber);
 
-    // Müşteri yalnızca kendi talebine mesaj yazabilir
-    if (senderRole === MessageRole.MUSTERI && ticket.customerId !== senderId) {
-      throw new ForbiddenException('You can only message your own tickets');
+    // Erişim kuralları
+    let senderRole: MessageRole;
+    if (user.role === UserRole.USER) {
+      if (ticket.customerId !== user.sub) {
+        this.auditClient.deny(user, 'TICKET_MESSAGE', 'Yalnızca kendi talebinize mesaj yazabilirsiniz', { ticketNumber });
+      }
+      senderRole = MessageRole.MUSTERI;
+    } else if (user.role === UserRole.TEMSILCI) {
+      if (ticket.assignedAgentId !== user.sub) {
+        this.auditClient.deny(user, 'TICKET_MESSAGE', 'Yalnızca size atanan taleplere mesaj yazabilirsiniz', { ticketNumber });
+      }
+      senderRole = MessageRole.TEMSILCI;
+    } else {
+      // Spec: mesajlaşma müşteri ile atanan temsilci arasındadır
+      this.auditClient.deny(user, 'TICKET_MESSAGE', 'Mesajlaşma yalnızca müşteri ile atanan temsilci arasındadır', { ticketNumber });
+      senderRole = MessageRole.SISTEM; // unreachable — deny fırlatır
+    }
+
+    // Kapalı taleplerde thread de kapalıdır
+    if (ticket.status === TicketStatus.KAPANDI || ticket.status === TicketStatus.IPTAL) {
+      throw new UnprocessableEntityException('Kapatılmış taleplere mesaj yazılamaz');
     }
 
     const newMessage = {
-      senderId,
+      senderId: user.sub,
       senderRole,
       content: dto.content,
       createdAt: new Date(),
@@ -389,10 +656,16 @@ export class TicketsService {
 
     ticket.messages.push(newMessage as Message);
 
-    // State Machine Otomatik Geçişleri
+    // State Machine Otomatik Geçişleri (Spec 4.2)
     if (senderRole === MessageRole.MUSTERI && ticket.status === TicketStatus.MUSTERI_BEKLENIYOR) {
+      // Sistem: müşteri yanıt verdi -> ISLEMDE
       ticket.status = TicketStatus.ISLEMDE;
-    } else if (senderRole === MessageRole.TEMSILCI && ticket.status === TicketStatus.ISLEMDE) {
+    } else if (
+      senderRole === MessageRole.TEMSILCI &&
+      dto.awaitCustomer === true &&
+      ticket.status === TicketStatus.ISLEMDE
+    ) {
+      // Temsilci bilgi istedi -> MUSTERI_BEKLENIYOR (opsiyonel, temsilcinin tercihi)
       ticket.status = TicketStatus.MUSTERI_BEKLENIYOR;
     }
 
@@ -404,6 +677,15 @@ export class TicketsService {
     return updated;
   }
 
+  // Mesaj thread'i — kronolojik sırayla (görüntüleme kuralları findOne ile aynı,
+  // erişim kontrolü controller'da yapılır)
+  async getMessages(ticketNumber: string): Promise<Message[]> {
+    const ticket = await this.findOne(ticketNumber);
+    return [...ticket.messages].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
+  }
+
   // Sadece AI Service (veya RabbitMQ consumer) tarafından çağrılır
   async updateAiAnalysis(ticketNumber: string, analysisData: any): Promise<Ticket> {
     const ticket = await this.findOne(ticketNumber);
@@ -412,11 +694,18 @@ export class TicketsService {
 
     // Analiz geç geldiyse ve talep bu arada kapandıysa hiçbir alanı ezme —
     // aksi halde çözülmüş/iptal edilmiş talep tekrar ATANDI'ya döner.
-    if (ticket.status === TicketStatus.COZULDU || ticket.status === TicketStatus.IPTAL) {
+    if (
+      ticket.status === TicketStatus.COZULDU ||
+      ticket.status === TicketStatus.KAPANDI ||
+      ticket.status === TicketStatus.IPTAL
+    ) {
       return ticket.save();
     }
 
     ticket.aiCategory = analysisData.category;
+    if (analysisData.sentiment) {
+      ticket.sentiment = analysisData.sentiment;
+    }
     // Personel analizden önce kategori atadıysa (BELIRSIZ dışı) AI onu ezmez;
     // seçim AI önerisinden farklıysa doğruluk metriğine yansıtılır.
     if (ticket.category === 'BELIRSIZ') {
@@ -424,31 +713,36 @@ export class TicketsService {
     } else if (ticket.category !== analysisData.category) {
       ticket.categoryOverriddenAfterAi = true;
     }
-    ticket.priority = analysisData.priority;
+    // Süpervizör önceliği manuel belirlediyse AI önerisi onu ezmez
+    if (!ticket.priorityManuallySet) {
+      ticket.priority = analysisData.priority;
+    }
+
+    if (typeof analysisData.confidence === 'number') {
+      ticket.aiConfidence = analysisData.confidence;
+    }
 
     // AI yalnızca henüz atanmamış talepleri atayabilir; manuel atama (süpervizör)
     // her zaman önceliklidir ve geç gelen analizle geri alınmaz.
+    let autoAssigned = false;
     if (analysisData.assignedAgentId && !ticket.assignedAgentId) {
        ticket.assignedAgentId = analysisData.assignedAgentId;
        ticket.assignmentSource = 'AI';
+       ticket.aiAssignedAt = new Date();
        ticket.status = TicketStatus.ATANDI; // State transition
+       autoAssigned = true;
     }
 
     // Recalculate SLA based on new priority
-    let hours = 24;
-    switch (ticket.priority) {
-      case TicketPriority.KRITIK: hours = 1; break;
-      case TicketPriority.YUKSEK: hours = 4; break;
-      case TicketPriority.ORTA: hours = 24; break;
-      case TicketPriority.DUSUK: hours = 72; break;
-    }
-    const deadline = new Date((ticket as any).createdAt || Date.now());
-    deadline.setHours(deadline.getHours() + hours);
-    ticket.slaDeadline = deadline;
+    ticket.slaDeadline = this.slaDeadlineFor(ticket);
 
     const updated = await ticket.save();
 
     this.ticketsGateway.notifyTicketStatusUpdated(ticket.customerId, updated);
+    // Süpervizör/admin panelindeki canlı otomatik atama akışı için ayrı event
+    if (autoAssigned) {
+      this.ticketsGateway.notifyAutoAssignment(updated);
+    }
 
     return updated;
   }

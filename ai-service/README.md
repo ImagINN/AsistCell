@@ -1,8 +1,43 @@
 # ai-service
 
 Yapay zeka destekli ticket analizi: kategori/duygu/öncelik sınıflandırması ve
-uygun temsilciye otomatik atama. Google Gemini API ile çalışır, API çökük/limitliyse
-circuit breaker devreye girer ve ticket manuel atama kuyruğuna düşer.
+uygun temsilciye otomatik atama. **Hibrit yaklaşım** kullanılır:
+
+1. **Birincil — LLM (Google Gemini):** kategori + güven skoru (0.0-1.0) + sentiment üretir.
+2. **Fallback — kendi veri setimizle eğitilmiş yerel ML modeli (TF-IDF + Logistic
+   Regression):** Gemini erişilemezse (API çökük, limitli, circuit breaker açık)
+   sınıflandırmayı tamamen çevrimdışı yerel model yapar; sentiment bu modda kural
+   tabanlı (Türkçe öfke/memnuniyet anahtar kelimeleri) belirlenir.
+
+Her iki motorda da aynı kural geçerlidir: **güven skoru < 0.60 ise kategori
+`BELIRSIZ` döner ve talep manuel atama kuyruğuna düşer** (otomatik temsilci
+ataması yapılmaz, süpervizör manuel atar).
+
+## Model Eğitimi (kendi veri setimiz)
+
+- **Veri seti:** [`data/training_data.csv`](data/training_data.csv) — kendi
+  oluşturduğumuz, elle etiketlenmiş **150 gerçekçi Türkçe talep metni**
+  (kategori başına 30 örnek; FATURA, SEBEKE, CIHAZ, TARIFE, IPTAL).
+  Format: `text,category`. Örnekler günlük konuşma dilinde, gerçek çağrı merkezi
+  senaryolarından esinlenerek yazıldı (örn. *"Faturam bu ay iki katı geldi,
+  açıklama istiyorum"*, *"Evde çekim gücü çok düşük, sürekli kesiliyor"*).
+- **Mimari:** `TfidfVectorizer` (karakter 3-5 gram, `char_wb`, sublinear TF) →
+  `LogisticRegression` (C=5). Karakter n-gram'ları Türkçe'nin sondan eklemeli
+  yapısında kelime n-gram'larından belirgin iyi sonuç verdi (5-fold CV: 0.913'e
+  karşı 0.727). Güven skoru `predict_proba`'nın en yüksek sınıf olasılığıdır —
+  0.0-1.0 aralığında, LLM'inkiyle aynı sözleşme.
+- **Eğitim süreci:** `python scripts/train_model.py`
+  1. CSV yüklenir, 5-katlı çapraz doğrulama ile genel doğruluk raporlanır,
+  2. %80/%20 stratified split üzerinde test doğruluğu + sınıf bazlı
+     precision/recall raporlanır,
+  3. Nihai model tüm veriyle eğitilip `app/ml/model.joblib`'e kaydedilir.
+- **Yeniden eğitim:** `data/training_data.csv`'ye örnek ekleyip scripti tekrar
+  çalıştırmak yeterli. Docker imajı build edilirken eğitim otomatik çalışır
+  (`Dockerfile` içindeki `RUN python scripts/train_model.py`), model imaja gömülür.
+- **Doğruluk takibi:** Personel bir talebin kategorisini değiştirdiğinde
+  ticket-service `ticket.category_changed` event'i yayınlar; bu servis düzeltmeyi
+  `analysis_logs.corrected_category`'ye işler ve `/stats` endpoint'i canlı
+  `accuracy_rate` raporlar.
 
 ## Sorumluluk
 
@@ -20,7 +55,8 @@ oluşturma AI Service'e senkron bağımlı değildir (bkz. [ticket-service](../t
 ## Teknoloji
 
 FastAPI · SQLAlchemy 2 (async) + `asyncpg` + Alembic (PostgreSQL) · `aio-pika`
-(RabbitMQ) · `google-generativeai` (Gemini) · `tenacity`
+(RabbitMQ) · `google-generativeai` (Gemini) · `scikit-learn` (yerel TF-IDF +
+Logistic Regression sınıflandırıcısı) · `tenacity`
 
 ## Veri Modeli (SQLAlchemy)
 
@@ -50,6 +86,7 @@ ayrıca lokal bir auth kontrolü yapmaz, doğrulama tamamen Kong'da yapılır).
 |---|---|---|
 | `ticket.created` | `{ ticketId, title, description }` | Analizi çalıştırır, sonucu `ticket.analyzed` ile geri yayınlar |
 | `ticket.released` | `{ ticketId, agentId, resolved }` | İlgili temsilcinin `active_ticket_count`'unu azaltır |
+| `ticket.category_changed` | `{ ticketId, aiCategory, newCategory, changedByRole }` | Personel kategori düzeltmesini `analysis_logs.corrected_category`'ye işler (doğruluk metriği) |
 
 **Yayınlanan event'ler** (routing key: `ticket_updates_queue`, tüketen: ticket-service):
 

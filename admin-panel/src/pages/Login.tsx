@@ -34,7 +34,7 @@ const Login: React.FC = () => {
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [lockRemaining > 0]);
+  }, [lockRemaining]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

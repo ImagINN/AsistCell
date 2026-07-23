@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Users, UserPlus } from 'lucide-react';
 import api from '../services/api';
+import { ROLE_LABELS } from '../constants/roles';
 
 const SPECIALTIES = [
   { value: 'FATURA', label: 'Fatura' },
@@ -9,13 +10,6 @@ const SPECIALTIES = [
   { value: 'TARIFE', label: 'Tarife' },
   { value: 'IPTAL', label: 'İptal' },
 ];
-
-const ROLE_LABELS: Record<string, string> = {
-  USER: 'Müşteri',
-  TEMSILCI: 'Temsilci',
-  SUPERVIZOR: 'Süpervizör',
-  ADMIN: 'Admin',
-};
 
 interface UserRow {
   id: string;
@@ -44,6 +38,15 @@ const UserManagement: React.FC = () => {
     api.get('/auth/users')
       .then((res) => setUsers(res.data))
       .catch((err) => console.error('Kullanıcılar alınamadı:', err));
+  };
+
+  const changeRole = async (userId: string, newRole: string) => {
+    try {
+      await api.patch(`/auth/users/${userId}/role`, { role: newRole });
+      loadUsers();
+    } catch (err) {
+      console.error('Rol güncellenemedi:', err);
+    }
   };
 
   useEffect(loadUsers, []);
@@ -150,6 +153,7 @@ const UserManagement: React.FC = () => {
               <th className="py-2 pr-4">E-posta / GSM</th>
               <th className="py-2 pr-4">Rol</th>
               <th className="py-2">Uzmanlıklar</th>
+              <th className="py-2 w-40">Rol Değiştir</th>
             </tr>
           </thead>
           <tbody>
@@ -164,6 +168,21 @@ const UserManagement: React.FC = () => {
                   {u.specialties?.length
                     ? u.specialties.map((s) => SPECIALTIES.find((x) => x.value === s)?.label ?? s).join(', ')
                     : '—'}
+                </td>
+                <td className="py-2">
+                  {u.role === 'USER' ? (
+                    <span className="text-gray-400 text-xs">—</span>
+                  ) : (
+                    <select
+                      value={u.role}
+                      onChange={(e) => changeRole(u.id, e.target.value)}
+                      className="text-xs border-gray-300 rounded-md shadow-sm focus:border-brand-primary focus:ring focus:ring-brand-primary focus:ring-opacity-50"
+                    >
+                      <option value="TEMSILCI">Temsilci</option>
+                      <option value="SUPERVIZOR">Süpervizör</option>
+                      <option value="ADMIN">Admin</option>
+                    </select>
+                  )}
                 </td>
               </tr>
             ))}

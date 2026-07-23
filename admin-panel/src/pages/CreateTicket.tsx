@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, CheckCircle2, Globe, Send } from 'lucide-react';
 import api from '../services/api';
+import Navbar from '../components/Navbar';
 
 const TITLE_MIN = 5;
 const TITLE_MAX = 100;
@@ -65,7 +66,9 @@ const CreateTicket: React.FC = () => {
     `text-xs mt-1 ${valid ? 'text-green-600' : 'text-gray-400'}`;
 
   return (
-    <div className="min-h-screen bg-brand-surface py-10 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-brand-surface">
+      <Navbar />
+      <div className="py-10 px-4 sm:px-6 lg:px-8">
       <div className="max-w-2xl mx-auto animate-slide-up">
         <Link to="/" className="inline-flex items-center text-sm text-gray-500 hover:text-brand-primary mb-6">
           <ArrowLeft className="w-4 h-4 mr-1" />
@@ -167,6 +170,7 @@ const CreateTicket: React.FC = () => {
             </>
           )}
         </div>
+      </div>
       </div>
     </div>
   );
