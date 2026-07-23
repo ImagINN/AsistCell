@@ -72,7 +72,10 @@ const SupervisorDashboard: React.FC = () => {
       fetchUsersByIds(r.data.map((t: TeamRow) => t.agentId)).then(setNames);
     }).catch(() => {});
     api.get('/ai/stats').then((r) => setAiStats(r.data)).catch(() => {});
-    api.get('/tickets', { params: { category: 'BELIRSIZ' } }).then((r) => setPending(r.data)).catch(() => {});
+    // Bekleyen kuyruk: henüz kimseye atanmamış (YENI) talepler — kapasitesizlik
+    // yüzünden AI'ın atayamadığı gerçek kategorili talepler de burada görünür,
+    // sadece BELIRSIZ kategorili olanlar değil.
+    api.get('/tickets', { params: { status: 'YENI' } }).then((r) => setPending(r.data)).catch(() => {});
   };
 
   useEffect(() => {
@@ -90,10 +93,10 @@ const SupervisorDashboard: React.FC = () => {
       auth: { token },
     });
 
-    // Bekleyen (BELIRSIZ) atama kuyruğu her ticket güncellemesinde anlık senkron olur
+    // Bekleyen atama kuyruğu (henüz atanmamış / YENI) her ticket güncellemesinde anlık senkron olur
     socket.on('ticket_updated', (ticket: PendingTicket & { status: string }) => {
       setPending((prev) => {
-        const stillPending = ticket.category === 'BELIRSIZ' && !['KAPANDI', 'IPTAL'].includes(ticket.status);
+        const stillPending = ticket.status === 'YENI';
         const exists = prev.some((p) => p.ticketNumber === ticket.ticketNumber);
         if (stillPending) {
           return exists
@@ -248,7 +251,7 @@ const SupervisorDashboard: React.FC = () => {
         <div className="glass-panel p-6 animate-slide-up">
           <h3 className="text-sm font-bold text-gray-900 flex items-center mb-4">
             <AlertCircle className="w-4 h-4 mr-2 text-amber-600" />
-            Bekleyen Atama Kuyruğu (Belirsiz Kategori)
+            Bekleyen Atama Kuyruğu (Atanmamış Talepler)
           </h3>
           <div className="divide-y divide-gray-100">
             {pending.length === 0 ? (

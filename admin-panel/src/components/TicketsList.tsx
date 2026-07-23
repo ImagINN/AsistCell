@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Frown, Meh, Smile } from 'lucide-react';
 import api, { API_ORIGIN } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
-import { CATEGORY_LABELS, PRIORITY_LABELS, STATUS_LABELS } from '../constants/tickets';
+import { CATEGORY_LABELS, PRIORITY_LABELS, STATUS_LABELS, SENTIMENT_LABELS, SENTIMENT_COLORS } from '../constants/tickets';
 
 interface Ticket {
   ticketNumber: string;
@@ -12,10 +12,17 @@ interface Ticket {
   status: string;
   priority: string;
   category?: string;
+  sentiment?: string;
   createdAt: string;
   slaDeadline?: string;
   resolvedAt?: string;
 }
+
+const SENTIMENT_ICONS: Record<string, React.ElementType> = {
+  OFKELI: Frown,
+  NOTR: Meh,
+  MEMNUN: Smile,
+};
 
 // SLA COZULDU/KAPANDI/IPTAL durumlarında durur
 const SLA_STOPPED_STATUSES = ['COZULDU', 'KAPANDI', 'IPTAL'];
@@ -189,6 +196,20 @@ const TicketsList: React.FC = () => {
               </div>
               <div className="flex items-center gap-4 shrink-0">
                 {slaChip(ticket)}
+                {ticket.sentiment && (() => {
+                  const SentimentIcon = SENTIMENT_ICONS[ticket.sentiment] ?? Meh;
+                  const color = SENTIMENT_COLORS[ticket.sentiment] ?? '#64748B';
+                  return (
+                    <span
+                      className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium border"
+                      style={{ color, borderColor: color, backgroundColor: `${color}14` }}
+                      title={`Duygu tonu: ${SENTIMENT_LABELS[ticket.sentiment] ?? ticket.sentiment}`}
+                    >
+                      <SentimentIcon className="w-3.5 h-3.5" />
+                      {SENTIMENT_LABELS[ticket.sentiment] ?? ticket.sentiment}
+                    </span>
+                  );
+                })()}
                 <span className={`px-3 py-1 rounded-full text-xs font-medium border ${
                   ticket.priority === 'KRITIK' ? 'bg-red-50 text-red-700 border-red-200' :
                   ticket.priority === 'YUKSEK' ? 'bg-orange-50 text-orange-700 border-orange-200' :

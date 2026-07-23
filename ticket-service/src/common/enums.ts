@@ -15,6 +15,13 @@ export enum TicketPriority {
   DUSUK = 'DUSUK',
 }
 
+// AI servisinin talep metninden çıkardığı duygu tonu (OFKELI -> öncelik en az YUKSEK'e çekilir)
+export enum TicketSentiment {
+  OFKELI = 'OFKELI',
+  NOTR = 'NOTR',
+  MEMNUN = 'MEMNUN',
+}
+
 export enum MessageRole {
   MUSTERI = 'MUSTERI',
   TEMSILCI = 'TEMSILCI',

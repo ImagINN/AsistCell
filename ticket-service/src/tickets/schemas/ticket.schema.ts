@@ -1,6 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, SchemaTypes } from 'mongoose';
-import { TicketStatus, TicketPriority, MessageRole, TicketChannel } from '../../common/enums';
+import { TicketStatus, TicketPriority, TicketSentiment, MessageRole, TicketChannel } from '../../common/enums';
 
 @Schema({ timestamps: true })
 export class Message {
@@ -86,6 +86,10 @@ export class Ticket extends Document {
   // AI'ın önerdiği kategori (personel override'ı doğruluk metriğine yansısın diye saklanır)
   @Prop({ type: String })
   aiCategory?: string;
+
+  // AI'ın talep metninden çıkardığı duygu tonu — temsilci ekranında renk/ikonla gösterilir
+  @Prop({ type: String, enum: TicketSentiment })
+  sentiment?: TicketSentiment;
 
   @Prop({ type: Boolean, default: false })
   categoryOverriddenAfterAi: boolean;

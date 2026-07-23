@@ -680,6 +680,9 @@ export class TicketsService implements OnModuleInit, OnModuleDestroy {
     }
 
     ticket.aiCategory = analysisData.category;
+    if (analysisData.sentiment) {
+      ticket.sentiment = analysisData.sentiment;
+    }
     // Personel analizden önce kategori atadıysa (BELIRSIZ dışı) AI onu ezmez;
     // seçim AI önerisinden farklıysa doğruluk metriğine yansıtılır.
     if (ticket.category === 'BELIRSIZ') {

@@ -4,6 +4,7 @@ import { io, Socket } from 'socket.io-client';
 import {
   ArrowLeft, Send, Star, UserCheck, Sparkles, CheckCircle2,
   PlayCircle, Tag, Gauge, ThumbsUp, ThumbsDown, AlertTriangle,
+  Frown, Meh, Smile,
 } from 'lucide-react';
 import api, { API_ORIGIN } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -17,6 +18,7 @@ import { fetchUsersByIds, fetchUsersByRole, fullName, type DirectoryUser } from 
 const CATEGORY_OPTIONS = ['FATURA', 'SEBEKE', 'CIHAZ', 'TARIFE', 'IPTAL'];
 const PRIORITY_OPTIONS = ['DUSUK', 'ORTA', 'YUKSEK', 'KRITIK'];
 const MESSAGE_ROLE_LABELS: Record<string, string> = { MUSTERI: 'Müşteri', TEMSILCI: 'Temsilci', SISTEM: 'Sistem' };
+const SENTIMENT_ICONS: Record<string, React.ElementType> = { OFKELI: Frown, NOTR: Meh, MEMNUN: Smile };
 
 interface Message {
   senderId: string;
@@ -417,16 +419,19 @@ const TicketDetail: React.FC = () => {
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-gray-500">Duygu tonu</span>
-                    <span
-                      className="px-2 py-0.5 rounded-full text-xs font-medium border"
-                      style={{
-                        color: SENTIMENT_COLORS[ai.sentiment] ?? '#64748B',
-                        borderColor: SENTIMENT_COLORS[ai.sentiment] ?? '#64748B',
-                        backgroundColor: `${SENTIMENT_COLORS[ai.sentiment] ?? '#64748B'}14`,
-                      }}
-                    >
-                      {SENTIMENT_LABELS[ai.sentiment] ?? ai.sentiment}
-                    </span>
+                    {(() => {
+                      const SentimentIcon = SENTIMENT_ICONS[ai.sentiment] ?? Meh;
+                      const color = SENTIMENT_COLORS[ai.sentiment] ?? '#64748B';
+                      return (
+                        <span
+                          className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border"
+                          style={{ color, borderColor: color, backgroundColor: `${color}14` }}
+                        >
+                          <SentimentIcon className="w-3.5 h-3.5" />
+                          {SENTIMENT_LABELS[ai.sentiment] ?? ai.sentiment}
+                        </span>
+                      );
+                    })()}
                   </div>
                   {ticket.aiCategory && (
                     <div className="flex justify-between">

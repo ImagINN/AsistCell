@@ -95,10 +95,16 @@ export class UsersController {
   getAuditLogs(
     @Query('take') take?: string,
     @Query('skip') skip?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortOrder') sortOrder?: string,
+    @Query('search') search?: string,
   ) {
     return this.auditService.findAll(
       take ? parseInt(take, 10) : 50,
       skip ? parseInt(skip, 10) : 0,
+      sortBy,
+      sortOrder === 'asc' ? 'asc' : 'desc',
+      search,
     );
   }
 }

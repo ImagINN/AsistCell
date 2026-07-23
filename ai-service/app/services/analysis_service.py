@@ -29,9 +29,10 @@ class AnalysisService:
             # 1. & 2. Kategori Sınıflandırma ve Duygu Analizi (Gemini)
             gemini_res = await gemini_service.analyze_ticket(request.title, request.description)
             
-            # Gelen veriyi güvenli al
+            # Gelen veriyi güvenli al — Gemini dış bir API olduğu için sayısal
+            # aralık burada zorunlu kılınır (spec: güven skoru 0.0-1.0)
             cat = gemini_res.get("category", "BELIRSIZ")
-            conf = float(gemini_res.get("confidence", 0.0))
+            conf = max(0.0, min(1.0, float(gemini_res.get("confidence", 0.0))))
             sent = gemini_res.get("sentiment", "NOTR")
             
             # Validasyon
@@ -64,8 +65,14 @@ class AnalysisService:
             logger.error(f"Fallback triggered for ticket {request.ticket_id} due to: {str(e)}")
             result.fallback_used = True
 
+            # Kural tabanlı sentiment, eğitilmiş modele bağımlı değildir; kategori
+            # sınıflandırması için yerel model olmasa bile OFKELI tespiti ve
+            # önceliğin YUKSEK'e çekilmesi her zaman çalışmalıdır.
+            text = f"{request.title} {request.description}"
+            result.sentiment = rule_based_sentiment(text)
+            result.priority = "YUKSEK" if result.sentiment == "OFKELI" else "ORTA"
+
             if local_classifier.available:
-                text = f"{request.title} {request.description}"
                 cat, conf = local_classifier.classify(text)
                 result.confidence = conf
                 # Ana akışla aynı kural: güven < 0.60 ise BELIRSIZ + manuel kuyruk
@@ -75,8 +82,6 @@ class AnalysisService:
                 else:
                     result.category = cat
                     result.manual_queue = False
-                result.sentiment = rule_based_sentiment(text)
-                result.priority = "YUKSEK" if result.sentiment == "OFKELI" else "ORTA"
                 result.fallback_reason = f"gemini: {str(e)} | local_model kullanıldı (conf={conf:.2f})"
                 logger.info(
                     f"Local model classified ticket {request.ticket_id}: "
@@ -86,7 +91,6 @@ class AnalysisService:
                 result.fallback_reason = str(e)
                 result.category = "BELIRSIZ"
                 result.manual_queue = True
-                result.priority = "ORTA"
 
         # 3. Akıllı Temsilci Ataması
         # Kategorisi güvenle belirlenmiş talepler atanır (yerel model dahil);
